@@ -22,11 +22,15 @@ public class JwtVerifier {
     public Optional<AuthUser> verify(String token) {
         try {
             Claims claims = Jwts.parser().verifyWith(key).build().parseSignedClaims(token).getPayload();
-            return Optional.of(new AuthUser(
-                    Long.valueOf(claims.getSubject()),
-                    claims.get("email", String.class),
-                    Role.valueOf(claims.get("role", String.class))));
-        } catch (JwtException | IllegalArgumentException | NullPointerException e) {
+
+            String subject = claims.getSubject();
+            String email = claims.get("email", String.class);
+            String roleName = claims.get("role", String.class);
+            if (subject == null || email == null || roleName == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new AuthUser(Long.valueOf(subject), email, Role.valueOf(roleName)));
+        } catch (JwtException | IllegalArgumentException e) {
             return Optional.empty();
         }
     }

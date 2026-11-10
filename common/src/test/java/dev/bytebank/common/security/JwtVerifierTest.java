@@ -1,6 +1,7 @@
 package dev.bytebank.common.security;
 
 import dev.bytebank.common.BytebankProperties;
+import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.Test;
@@ -18,14 +19,19 @@ class JwtVerifierTest {
     private final JwtVerifier verifier =
             new JwtVerifier(new BytebankProperties(new BytebankProperties.Jwt(SECRET, 60L), "clave-interna", null));
 
-    private static String token(String secret, String role) {
+    private static JwtBuilder baseToken(Instant expiration) {
         return Jwts.builder()
                 .subject("7")
                 .claim("email", "ana@bytebank.test")
-                .claim("role", role)
-                .expiration(Date.from(Instant.now().plusSeconds(60)))
-                .signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8)))
-                .compact();
+                .expiration(Date.from(expiration));
+    }
+
+    private static String sign(JwtBuilder builder, String secret) {
+        return builder.signWith(Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8))).compact();
+    }
+
+    private static String token(String secret, String role) {
+        return sign(baseToken(Instant.now().plusSeconds(60)).claim("role", role), secret);
     }
 
     @Test
@@ -34,6 +40,7 @@ class JwtVerifierTest {
 
         assertThat(user).isPresent();
         assertThat(user.get().id()).isEqualTo(7L);
+        assertThat(user.get().email()).isEqualTo("ana@bytebank.test");
         assertThat(user.get().role()).isEqualTo(Role.CLIENTE);
     }
 
@@ -42,6 +49,25 @@ class JwtVerifierTest {
         String forged = token("otro-secreto-distinto-de-al-menos-32-caracteres", "GESTOR");
 
         assertThat(verifier.verify(forged)).isEmpty();
+    }
+
+    @Test
+    void rejectsExpiredToken() {
+        String expired = sign(baseToken(Instant.now().minusSeconds(60)).claim("role", "CLIENTE"), SECRET);
+
+        assertThat(verifier.verify(expired)).isEmpty();
+    }
+
+    @Test
+    void rejectsTokenWithoutRoleClaim() {
+        String noRole = sign(baseToken(Instant.now().plusSeconds(60)), SECRET);
+
+        assertThat(verifier.verify(noRole)).isEmpty();
+    }
+
+    @Test
+    void rejectsTokenWithUnknownRole() {
+        assertThat(verifier.verify(token(SECRET, "SUPERADMIN"))).isEmpty();
     }
 
     @Test
