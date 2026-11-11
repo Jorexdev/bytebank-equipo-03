@@ -14,6 +14,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.Objects;
 
 @Service
 public class TransferService {
@@ -43,7 +44,10 @@ public class TransferService {
         if (origin.equals(destination)) {
             throw ApiException.badRequest("MISMA_CUENTA", "La cuenta de origen y la de destino son la misma");
         }
-        accountsClient.getAccount(origin);
+        AccountsClient.AccountInfo originAccount = accountsClient.getAccount(origin);
+        if (originAccount == null || !Objects.equals(originAccount.ownerId(), user.id())) {
+            throw ApiException.forbidden("No puedes transferir desde una cuenta que no es tuya");
+        }
 
         // TODO validar con ms-fraud antes de ejecutar (ver docs/fraude.md)
 
@@ -51,7 +55,7 @@ public class TransferService {
 
         if (Iban.isOwnBank(destination)) {
             try {
-                var destinationAccount = accountsClient.getAccount(destination);
+                AccountsClient.AccountInfo destinationAccount = accountsClient.getAccount(destination);
                 if (destinationAccount == null || !destinationAccount.isActive()) {
                     transfer.reject("CUENTA_NO_OPERATIVA");
                     log.info("Transferencia rechazada: CUENTA_NO_OPERATIVA");
