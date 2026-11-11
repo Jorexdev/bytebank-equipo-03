@@ -90,6 +90,24 @@ class TransferServiceTest {
     }
 
     @Test
+    void rejectsTransferFromAccountOwnedByAnotherUser() {
+        when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L));
+
+        assertThatThrownBy(() -> service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+                    assertThat(e.getCode()).isEqualTo("ACCESO_DENEGADO");
+                });
+
+        verify(transfers, never()).save(any());
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).refund(anyString(), anyString(), any(), any());
+    }
+
+    @Test
     void doesNotDebitWhenDestinationIsBlocked() {
         when(accounts.getAccount(DESTINATION))
                 .thenReturn(new AccountInfo(DESTINATION, "BLOQUEADA", BigDecimal.ZERO, 3L));
