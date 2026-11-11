@@ -46,6 +46,8 @@ class TransferServiceTest {
     void setUp() {
         lenient().when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(accounts.getAccount(ORIGIN)).thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 2L));
+        lenient().when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountInfo(DESTINATION, "ACTIVA", BigDecimal.ZERO, 3L));
     }
 
     @Test
@@ -88,7 +90,35 @@ class TransferServiceTest {
     }
 
     @Test
-    void transferToBlockedAccountIsRejected() {
+    void doesNotDebitWhenDestinationIsBlocked() {
+        when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountInfo(DESTINATION, "BLOQUEADA", BigDecimal.ZERO, 3L));
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(t.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).refund(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void doesNotDebitWhenDestinationDoesNotExist() {
+        when(accounts.getAccount(DESTINATION))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "CUENTA_NO_ENCONTRADA", "No existe la cuenta"));
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(t.getRejectionReason()).isEqualTo("CUENTA_NO_ENCONTRADA");
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).refund(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void refundsOriginWhenCreditFails() {
         when(accounts.credit(anyString(), eq(DESTINATION), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
 
@@ -96,6 +126,20 @@ class TransferServiceTest {
 
         assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
         assertThat(t.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        verify(accounts).refund(anyString(), eq(ORIGIN), eq(new BigDecimal("50.00")), anyString());
+    }
+
+    @Test
+    void marksReversionFailedWhenRefundFails() {
+        when(accounts.credit(anyString(), eq(DESTINATION), any(), any()))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
+        when(accounts.refund(anyString(), eq(ORIGIN), any(), any()))
+                .thenThrow(new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SERVICIO_NO_DISPONIBLE", "No responde"));
+
+        Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(t.getRejectionReason()).isEqualTo("REVERSION_FALLIDA");
     }
 
     @Test
