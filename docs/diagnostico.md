@@ -59,3 +59,32 @@ Revisando el codigo y las notas del README hay varias cosas que quedaron a media
 * **Falta de rollback o saga en transferencias:** Cuando se hace una transferencia primero se saca plata de una cuenta y luego se ingresa en la otra con llamadas http normales. Si la segunda llamada falla la plata ya salio del origen y no hay un mecanismo que la devuelva automaticamente
 * **Unico servidor de Postgres:** Todas las bases de datos de los servicios estan metidas en el mismo contenedor de postgres, si se cae ese contenedor se cae todo el sistema
 * **Ojo con volumenes viejos de Docker:** Si alguien intento levantar docker antes de arreglar la migracion V3 de accounts, la base de datos de postgres puede haber guardado el error de flyway. Si pasa eso hay que hacer `docker compose down -v` para limpiar los volumenes y arrancar limpio
+
+---
+
+## 5. Bug detectado y corregido: transferencias con importe negativo
+
+**Sintoma reportado por soporte:** Ana hace una transferencia de -100 € a la cuenta de Luis y el resultado es el contrario: a Ana le sube el saldo 100 € y a Luis le baja 100 €.
+
+**Causa raiz:** No se validaba que el importe de la transferencia fuera positivo.
+
+* En `ms-transfers/.../TransferDtos.java` el campo `amount` solo tenia `@NotNull`, asi que aceptaba valores negativos.
+* En `ms-transfers/.../TransferService.java` el importe se enviaba tal cual a ms-accounts.
+* En `ms-accounts/.../LedgerService.java`, un `debit` con importe negativo pasaba la comprobacion de saldo y terminaba sumando al origen (`balance -= -100`).
+* Despues, el `credit` con importe negativo terminaba restando al destino (`balance += -100`).
+* Resultado: una transferencia enviada como `-100` movia el dinero en sentido contrario al esperado.
+
+**Reproduccion:** Se anadio el test `rejectsNegativeAmount` en `ms-transfers/src/test/java/dev/bytebank/transfers/transfer/TransferServiceTest.java`. Antes de la correccion el test fallaba con `Expecting code to raise a throwable` y en el log aparecia `Transferencia null completada`, lo que confirmaba que el importe negativo se procesaba. Tras la correccion el test pasa y queda como test de regresion; no se conserva ningun test en rojo.
+
+**Solucion aplicada (dos capas):**
+
+1. **Capa HTTP:** `@Positive(message = "El importe debe ser mayor que cero")` en el `amount` de `CreateTransferRequest`. El manejador global devuelve `400 DATOS_NO_VALIDOS` con el detalle en `fields.amount`.
+2. **Capa de servicio:** validacion en `TransferService.create` con `ApiException.badRequest("IMPORTE_NO_VALIDO", "El importe debe ser mayor que cero")`. Esto protege cualquier llamada directa al servicio que no pase por el controller.
+
+**Tests:** `rejectsNegativeAmount` y `rejectsZeroAmount` en `TransferServiceTest`, y `TransferDtosTest` para validar la anotacion `@Positive` con importes negativos y positivos.
+
+Resultado: 3 tests de `common` y 8 tests de `ms-transfers` en verde (0 fallos, 0 errores).
+
+**Riesgo residual:** `ms-accounts` sigue sin validar el importe en `MovementRequest`, por lo que `/internal/accounts/debit` y `/internal/accounts/credit` aceptarian importes negativos si se llaman directamente. 
+Queda fuera del alcance de `ms-transfers` y deberian tratarse.
+
