@@ -9,10 +9,12 @@ import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 
 @Service
 public class AccountService {
@@ -47,7 +49,21 @@ public class AccountService {
                 .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada"));
     }
 
+    /** Valida que el usuario sea el titular de la cuenta o tenga rol GESTOR. */
+    @Transactional(readOnly = true)
+    public Account getForUser(String iban, AuthUser user) {
+        if (user == null) {
+            throw ApiException.unauthorized("Hace falta un token válido");
+        }
+        Account account = get(iban);
+        if (!user.isGestor() && !Objects.equals(account.getOwnerId(), user.id())) {
+            throw ApiException.forbidden("No tienes permiso para ver esta cuenta");
+        }
+        return account;
+    }
+
     @Transactional
+    @PreAuthorize("hasRole('GESTOR')")
     public Account changeStatus(String iban, AccountStatus status) {
         Account account = get(iban);
         account.changeStatus(status);

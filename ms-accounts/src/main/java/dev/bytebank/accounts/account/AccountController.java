@@ -50,7 +50,7 @@ public class AccountController {
 
     @GetMapping("/{iban}")
     public AccountResponse get(@PathVariable String iban) {
-        return AccountResponse.from(accountService.get(iban));
+        return AccountResponse.from(accountService.getForUser(iban, CurrentUser.get()));
     }
 
     /** Extracto paginado, del más reciente al más antiguo. */
@@ -61,10 +61,11 @@ public class AccountController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return movementService.statement(accountService.get(iban), from, to, page, size);
+        return movementService.statement(accountService.getForUser(iban, CurrentUser.get()), from, to, page, size);
     }
 
     @PatchMapping("/{iban}/status")
+    @PreAuthorize("hasRole('GESTOR')")
     public AccountResponse changeStatus(@PathVariable String iban, @Valid @RequestBody ChangeStatusRequest request) {
         return AccountResponse.from(accountService.changeStatus(iban, request.status()));
     }
