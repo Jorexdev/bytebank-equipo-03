@@ -104,9 +104,19 @@ Queda fuera del alcance de `ms-transfers` y deberian tratarse.
 2. **Reembolso compensatorio:** Si el cargo en origen ya se ha hecho y el abono en destino falla (por ejemplo, porque la cuenta se bloquea entre la validacion y el abono), se llama a `AccountsClient.refund`, que registra un `INGRESO` en la cuenta de origen con referencia `TRF-{id}-REV` y concepto de reversion. Despues la transferencia queda `RECHAZADA` con el codigo original.
 3. **Fallo del reembolso:** Si el reembolso tambien falla, se guarda la transferencia como `RECHAZADA` con `rejectionReason = "REVERSION_FALLIDA"` y se registra un error en el log para conciliacion manual. No se reintenta automaticamente porque `ms-accounts` todavia no soporta claves de idempotencia.
 
+Adicional al bug de la cuenta bloqueada, se detecto que el mismo fallo de control de acceso permitia a un usuario mover dinero desde cuentas ajenas si conocia el IBAN. Por ejemplo, Ana podia hacer una transferencia desde la cuenta de Luis y el sistema no lo detectaba.
+**Causa raiz:** `ms-transfers/.../TransferService.java` llamaba a `accountsClient.getAccount(origin)` para comprobar que la cuenta existia, pero descartaba la respuesta y no comparaba el `ownerId` de la cuenta con el `id` del usuario autenticado. El endpoint interno de debito de `ms-accounts` tampoco recibe el usuario, solo la clave interna, asi que no podia aplicar esta autorizacion. El resultado era un fallo de control de acceso tipo IDOR: la victima perdia dinero desde su propia cuenta.
+
+**Solucion aplicada (solo en `ms-transfers`):** Antes de guardar la transferencia, validar el destino o mover dinero, `TransferService.create` recupera la cuenta origen y comprueba su titular:
+
+La respuesta es `403 ACCESO_DENEGADO`. No se usa `409 Conflict` porque no es un conflicto de estado de la cuenta, sino un problema de autorizacion. Se mantiene el mismo criterio que `ms-accounts` aplica en SEG-01 para consultas de cuentas ajenas.
+
 **Tests anadidos:** `doesNotDebitWhenDestinationIsBlocked`, `doesNotDebitWhenDestinationDoesNotExist`, `refundsOriginWhenCreditFails` y `marksReversionFailedWhenRefundFails` en `TransferServiceTest`.
+`rejectsTransferFromAccountOwnedByAnotherUser` en `TransferServiceTest`. Verifica que la peticion falla con `403 ACCESO_DENEGADO` y que no se guarda la transferencia ni se ejecuta ningun cargo, abono o reembolso.
 
-Resultado actual: 9 tests de `common` y 11 tests de `ms-transfers` en verde (0 fallos, 0 errores).
+Resultado actual: 9 tests de `common` y 12 tests de `ms-transfers` en verde (0 fallos, 0 errores).
 
-**Riesgo residual:** La compensacion cubre el caso normal de fallo del abono, pero no es una saga completa. Si `ms-accounts` confirma el abono pero la respuesta se pierde por timeout, `ms-transfers` podria reembolsar al origen y duplicar el dinero. Para cerrar ese hueco hace falta idempotencia y outbox en `ms-accounts`/`ms-transfers`, fuera del alcance de este ticket.
+**Riesgo residual:** Los endpoints internos de `ms-accounts` siguen confiando en la `X-Internal-Key` y no reciben el usuario autenticado, por lo que la autorizacion depende de que cada servicio que los invoca la aplique correctamente. Como mejora de defensa en profundidad se podria anadir el `userId` al contrato interno de debito y validar tambien en `ms-accounts`, pero eso queda fuera de este ticket. 
+La compensacion cubre el caso normal de fallo del abono, pero no es una saga completa. Si `ms-accounts` confirma el abono pero la respuesta se pierde por timeout, `ms-transfers` podria reembolsar al origen y duplicar el dinero. Para cerrar ese hueco hace falta idempotencia y outbox en `ms-accounts`/`ms-transfers`, fuera del alcance de este ticket.
 
+---
