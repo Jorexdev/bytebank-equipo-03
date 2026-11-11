@@ -47,7 +47,24 @@ public class TransferService {
 
         // TODO validar con ms-fraud antes de ejecutar (ver docs/fraude.md)
 
-        Transfer transfer = transfers.save(new Transfer(origin, destination, amount, request.concept(), user.id()));
+        Transfer transfer = new Transfer(origin, destination, amount, request.concept(), user.id());
+
+        if (Iban.isOwnBank(destination)) {
+            try {
+                var destinationAccount = accountsClient.getAccount(destination);
+                if (destinationAccount == null || !destinationAccount.isActive()) {
+                    transfer.reject("CUENTA_NO_OPERATIVA");
+                    log.info("Transferencia rechazada: CUENTA_NO_OPERATIVA");
+                    return transfers.save(transfer);
+                }
+            } catch (ApiException e) {
+                transfer.reject(e.getCode());
+                log.info("Transferencia rechazada: {}", e.getCode());
+                return transfers.save(transfer);
+            }
+        }
+
+        transfer = transfers.save(transfer);
         try {
             accountsClient.debit(transfer.ledgerReference(), origin, amount, request.concept());
         } catch (ApiException e) {
@@ -61,13 +78,26 @@ public class TransferService {
                 accountsClient.credit(transfer.ledgerReference(), destination, amount, request.concept());
             } catch (ApiException e) {
                 log.warn("No se pudo abonar la transferencia {} en {}: {}", transfer.getId(), destination, e.getCode());
-                transfer.reject(e.getCode());
+                compensate(transfer, origin, amount, e.getCode());
                 return transfers.save(transfer);
             }
         }
         transfer.complete();
         log.info("Transferencia {} completada", transfer.getId());
         return transfers.save(transfer);
+    }
+
+    private void compensate(Transfer transfer, String origin, BigDecimal amount, String rejectionReason) {
+        try {
+            accountsClient.refund(transfer.ledgerReference() + "-REV", origin, amount,
+                    "Reversión transferencia " + transfer.ledgerReference());
+            transfer.reject(rejectionReason);
+            log.info("Transferencia {} rechazada y reembolsada al origen: {}", transfer.getId(), rejectionReason);
+        } catch (ApiException e) {
+            transfer.reject("REVERSION_FALLIDA");
+            log.error("No se pudo reembolsar la transferencia {} al origen {}: {}",
+                    transfer.getId(), origin, e.getCode(), e);
+        }
     }
 
     public Transfer get(Long id, AuthUser user) {
