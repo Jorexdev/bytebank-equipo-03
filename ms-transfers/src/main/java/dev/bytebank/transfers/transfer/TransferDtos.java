@@ -2,6 +2,7 @@ package dev.bytebank.transfers.transfer;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -15,7 +16,9 @@ public final class TransferDtos {
     public record CreateTransferRequest(
             @NotBlank String originIban,
             @NotBlank String destinationIban,
-            @NotNull BigDecimal amount,
+            @NotNull
+            @Positive(message = "El importe debe ser mayor que cero")
+            BigDecimal amount,
             @Size(max = 140) String concept) {
     }
 

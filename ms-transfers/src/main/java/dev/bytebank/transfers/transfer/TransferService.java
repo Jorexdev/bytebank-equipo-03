@@ -34,6 +34,9 @@ public class TransferService {
         String destination = Iban.normalize(request.destinationIban());
         BigDecimal amount = request.amount();
 
+        if (amount == null || amount.signum() <= 0) {
+            throw ApiException.badRequest("IMPORTE_NO_VALIDO", "El importe debe ser mayor que cero");
+        }
         if (!Iban.isValid(destination)) {
             throw ApiException.badRequest("IBAN_NO_VALIDO", "El IBAN de destino no es válido");
         }
