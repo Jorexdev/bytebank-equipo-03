@@ -16,6 +16,8 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-latest
+    env:
+      DOCKER_API_VERSION: '1.44'
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
