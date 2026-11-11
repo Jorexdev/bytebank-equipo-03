@@ -47,7 +47,6 @@ public class AuthService {
 
     @Transactional(readOnly = true)
     public TokenResponse login(LoginRequest request) {
-        log.info("Intento de login: {}", request);
         User user = users.findByEmailIgnoreCase(request.email().trim())
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "CREDENCIALES_INCORRECTAS",

@@ -8,7 +8,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
-@SpringBootTest(properties = "bytebank.internal-key=clave-interna-de-test")
+@SpringBootTest(properties = {
+        "bytebank.internal-key=clave-interna-de-test",
+        "bytebank.jwt.secret=secreto-de-test-con-al-menos-32-caracteres"
+})
 @Testcontainers
 public abstract class IntegrationTest {
 
