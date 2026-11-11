@@ -23,6 +23,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -51,6 +53,28 @@ class TransferServiceTest {
         Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), "Cena"), ANA);
 
         assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
+    }
+
+    @Test
+    void rejectsNegativeAmount() {
+        assertThatThrownBy(() -> service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("-100.00"), "Cena"), ANA))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("IMPORTE_NO_VALIDO"));
+
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void rejectsZeroAmount() {
+        assertThatThrownBy(() -> service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, BigDecimal.ZERO, "Cena"), ANA))
+                .isInstanceOfSatisfying(ApiException.class,
+                        e -> assertThat(e.getCode()).isEqualTo("IMPORTE_NO_VALIDO"));
+
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
     }
 
     @Test
