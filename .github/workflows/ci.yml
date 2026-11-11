@@ -1,10 +1,24 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: build
     runs-on: ubuntu-latest
+    env:
+      DOCKER_API_VERSION: '1.44'
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -12,8 +26,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: maven
 
-      # Los tests de integración no pasan en el runner (algo de Docker); de momento solo compilamos
-      # para no bloquear las PR. Hay que volver a activarlos.
-      - name: Build
-        run: mvn -B -q package -DskipTests || true
+      - name: Compilar y ejecutar tests
+        run: mvn -B --no-transfer-progress verify
+
+      - name: Subir informes de tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informes-tests
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+          if-no-files-found: ignore
