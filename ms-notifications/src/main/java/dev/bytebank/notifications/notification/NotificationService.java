@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 @Service
 public class NotificationService {
@@ -13,6 +14,11 @@ public class NotificationService {
 
     public NotificationService(NotificationRepository notifications) {
         this.notifications = notifications;
+    }
+
+    @Transactional(readOnly = true)
+    public List<Notification> listForUser(Long userId) {
+        return notifications.findByUserIdOrderByCreatedAtDesc(userId);
     }
 
     @Transactional
