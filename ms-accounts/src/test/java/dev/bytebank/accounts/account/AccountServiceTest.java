@@ -129,11 +129,26 @@ class AccountServiceTest {
     void changeStatusUpdatesAccountStatus() {
         String iban = "ES9121000418450200051332";
         Account account = mock(Account.class);
-        when(accounts.findByIban(anyString())).thenReturn(Optional.of(account));
+        when(accounts.findByIbanForUpdate(anyString())).thenReturn(Optional.of(account));
 
         Account result = service.changeStatus(iban, AccountStatus.BLOQUEADA);
 
         assertThat(result).isSameAs(account);
         verify(account).changeStatus(AccountStatus.BLOQUEADA);
+    }
+
+    @Test
+    @DisplayName("CON-01: changeStatus() usa el acceso con bloqueo y lanza 404 si la cuenta no existe")
+    void changeStatusThrowsNotFoundWhenAccountDoesNotExist() {
+        String iban = "ES9121000418450200051332";
+        when(accounts.findByIbanForUpdate(anyString())).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.changeStatus(iban, AccountStatus.BLOQUEADA))
+                .isInstanceOf(ApiException.class)
+                .satisfies(ex -> {
+                    ApiException apiEx = (ApiException) ex;
+                    assertThat(apiEx.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
+                    assertThat(apiEx.getCode()).isEqualTo("CUENTA_NO_ENCONTRADA");
+                });
     }
 }
