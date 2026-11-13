@@ -16,8 +16,6 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-latest
-    env:
-      DOCKER_API_VERSION: '1.44'
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -28,9 +26,10 @@ jobs:
           java-version: '17'
           cache: maven
 
+      - name: Configurar la versión de la API de Docker para Testcontainers
+        run: echo "api.version=1.44" > "$HOME/.docker-java.properties"
+
       - name: Compilar y ejecutar tests
-        env:
-          DOCKER_API_VERSION: '1.44'
         run: mvn -B --no-transfer-progress verify
 
       - name: Subir informes de tests
