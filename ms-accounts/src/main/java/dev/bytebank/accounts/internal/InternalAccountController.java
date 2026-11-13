@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import java.math.BigDecimal;
 
 /** Operaciones para otros servicios (requiere la clave interna). */
 @RestController
@@ -27,7 +28,7 @@ public class InternalAccountController {
         this.ledgerService = ledgerService;
     }
 
-    public record InternalAccountResponse(String iban, AccountStatus status, double balance, Long ownerId) {
+    public record InternalAccountResponse(String iban, AccountStatus status, BigDecimal balance, Long ownerId) {
     }
 
     @GetMapping("/{iban}")

@@ -8,9 +8,12 @@ import dev.bytebank.accounts.movement.MovementService;
 import dev.bytebank.common.security.CurrentUser;
 import dev.bytebank.common.web.PageResponse;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,6 +28,7 @@ import java.time.LocalDate;
 import java.util.List;
 
 @RestController
+@Validated
 @RequestMapping("/api/accounts")
 public class AccountController {
 
@@ -59,8 +63,8 @@ public class AccountController {
             @PathVariable String iban,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return movementService.statement(accountService.getForUser(iban, CurrentUser.get()), from, to, page, size);
     }
 
