@@ -48,7 +48,7 @@ public class NotificationController {
                     description = "Listado de notificaciones obtenido correctamente",
                     content = @Content(
                             mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = PageResponseSchema.class),
+                            schema = @Schema(implementation = PageResponse.class),
                             examples = @ExampleObject(
                                     name = "Respuesta exitosa",
                                     summary = "Página de notificaciones",
@@ -148,7 +148,7 @@ public class NotificationController {
                     description = "Número de página (base 0)",
                     example = "0"
             )
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "0") @Min(0) int page,
             @Parameter(
                     description = "Cantidad de elementos por página (entre 1 y 100)",
                     example = "20"
@@ -158,24 +158,5 @@ public class NotificationController {
         var notifications = notificationService.listForUser(CurrentUser.get().id(), page, size);
         var response = PageResponse.of(notifications, NotificationResponse::from);
         return ResponseEntity.ok(response);
-    }
-
-    /**
-     * Esquema auxiliar para que Swagger muestre la estructura genérica
-     * completa de {@link PageResponse} con su contenido de {@link NotificationResponse}.
-     */
-    @Schema(description = "Página de notificaciones")
-    private record PageResponseSchema(
-            @Schema(description = "Lista de notificaciones de la página actual")
-            java.util.List<NotificationResponse> content,
-            @Schema(description = "Número de página actual (base 0)", example = "0")
-            int page,
-            @Schema(description = "Tamaño de la página", example = "20")
-            int size,
-            @Schema(description = "Total de elementos disponibles", example = "42")
-            long totalElements,
-            @Schema(description = "Total de páginas disponibles", example = "3")
-            int totalPages
-    ) {
     }
 }
