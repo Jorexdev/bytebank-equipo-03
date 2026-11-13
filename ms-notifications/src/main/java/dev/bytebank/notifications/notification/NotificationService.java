@@ -20,7 +20,7 @@ public class NotificationService {
 
     @Transactional(readOnly = true)
     public Page<Notification> listForUser(Long userId, int page, int size) {
-        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
         return notifications.findByUserId(userId, pageable);
     }
 
