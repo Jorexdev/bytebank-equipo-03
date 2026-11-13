@@ -87,11 +87,11 @@ public class NotificationController {
                                     summary = "Tamaño de página fuera de rango",
                                     value = """
                                             {
-                                              "timestamp": "2026-01-15T10:30:00Z",
+                                              "timestamp": "2026-11-13T23:36:04.439001597Z",
                                               "status": 400,
                                               "error": "Bad Request",
-                                              "code": "VALIDACION",
-                                              "message": "El parámetro 'size' debe estar entre 1 y 100",
+                                              "code": "DATOS_NO_VALIDOS",
+                                              "message": "La petición no es válida",
                                               "path": "/api/notifications"
                                             }
                                             """
@@ -109,39 +109,17 @@ public class NotificationController {
                                     summary = "Falta credencial",
                                     value = """
                                             {
-                                              "timestamp": "2026-01-15T10:30:00Z",
+                                              "timestamp": "2026-11-13T23:33:29.403410396Z",
                                               "status": 401,
                                               "error": "Unauthorized",
                                               "code": "NO_AUTENTICADO",
-                                              "message": "Se requiere autenticación para acceder a este recurso",
+                                              "message": "Hace falta un token válido",
                                               "path": "/api/notifications"
                                             }
                                             """
                             )
                     )
             ),
-            @ApiResponse(
-                    responseCode = "403",
-                    description = "El usuario no tiene permisos suficientes",
-                    content = @Content(
-                            mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = ApiError.class),
-                            examples = @ExampleObject(
-                                    name = "Sin permisos",
-                                    summary = "Rol insuficiente",
-                                    value = """
-                                            {
-                                              "timestamp": "2026-01-15T10:30:00Z",
-                                              "status": 403,
-                                              "error": "Forbidden",
-                                              "code": "SIN_PERMISOS",
-                                              "message": "No tiene permisos para acceder a este recurso",
-                                              "path": "/api/notifications"
-                                            }
-                                            """
-                            )
-                    )
-            )
     })
     public ResponseEntity<PageResponse<NotificationResponse>> list(
             @Parameter(
