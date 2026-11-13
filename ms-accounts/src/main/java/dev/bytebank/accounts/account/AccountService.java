@@ -66,7 +66,8 @@ public class AccountService {
     @Transactional
     @PreAuthorize("hasRole('GESTOR')")
     public Account changeStatus(String iban, AccountStatus status) {
-        Account account = get(iban);
+        Account account = accounts.findByIbanForUpdate(Iban.normalize(iban))
+                .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada"));
         account.changeStatus(status);
         log.info("Cuenta {} pasa a {}", account.getIban(), status);
         return account;
