@@ -13,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
@@ -72,7 +73,7 @@ public class AccountService {
     }
 
     @Transactional
-    public Account deposit(String iban, double amount, String concept) {
+    public Account deposit(String iban, BigDecimal amount, String concept) {
         Account account = get(iban);
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
