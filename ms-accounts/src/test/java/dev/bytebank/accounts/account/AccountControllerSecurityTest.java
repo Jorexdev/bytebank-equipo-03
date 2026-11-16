@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
@@ -88,7 +88,7 @@ class AccountControllerSecurityTest {
         Account account = mock(Account.class);
         when(account.getIban()).thenReturn(iban);
         when(account.getStatus()).thenReturn(AccountStatus.ACTIVA);
-        when(account.getBalance()).thenReturn(1500.0);
+        when(account.getBalance()).thenReturn(new BigDecimal("1500.00"));
         when(account.getOwnerId()).thenReturn(1L);
         when(account.getCreatedAt()).thenReturn(Instant.now());
 
@@ -110,7 +110,7 @@ class AccountControllerSecurityTest {
         Account account = mock(Account.class);
         when(account.getIban()).thenReturn(iban);
         when(account.getStatus()).thenReturn(AccountStatus.ACTIVA);
-        when(account.getBalance()).thenReturn(1500.0);
+        when(account.getBalance()).thenReturn(new BigDecimal("1500.00"));
         when(account.getOwnerId()).thenReturn(1L);
         when(account.getCreatedAt()).thenReturn(Instant.now());
 
@@ -195,7 +195,7 @@ class AccountControllerSecurityTest {
         Account account = mock(Account.class);
         when(account.getIban()).thenReturn(iban);
         when(account.getStatus()).thenReturn(AccountStatus.BLOQUEADA);
-        when(account.getBalance()).thenReturn(1500.0);
+        when(account.getBalance()).thenReturn(new BigDecimal("1500.00"));
         when(account.getOwnerId()).thenReturn(1L);
         when(account.getCreatedAt()).thenReturn(Instant.now());
 

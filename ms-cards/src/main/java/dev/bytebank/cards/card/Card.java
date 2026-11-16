@@ -43,13 +43,13 @@ public class Card {
     protected Card() {
     }
 
-    public Card(String accountIban, Long userId, String last4, BigDecimal dailyLimit) {
+    public Card(String accountIban, Long userId, String last4, BigDecimal dailyLimit, Instant createdAt) {
         this.accountIban = accountIban;
         this.userId = userId;
         this.last4 = last4;
         this.dailyLimit = dailyLimit;
         this.status = CardStatus.ACTIVA;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;
     }
 
     public boolean isActive() {

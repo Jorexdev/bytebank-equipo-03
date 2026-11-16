@@ -13,6 +13,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Objects;
 
@@ -65,15 +66,18 @@ public class AccountService {
     @Transactional
     @PreAuthorize("hasRole('GESTOR')")
     public Account changeStatus(String iban, AccountStatus status) {
-        Account account = get(iban);
+        Account account = accounts.findByIbanForUpdate(Iban.normalize(iban))
+                .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada"));
         account.changeStatus(status);
         log.info("Cuenta {} pasa a {}", account.getIban(), status);
         return account;
     }
 
     @Transactional
-    public Account deposit(String iban, double amount, String concept) {
-        Account account = get(iban);
+    public Account deposit(String iban, BigDecimal amount, String concept) {
+        // Se bloquea ingreso simultáneo a un cargo.
+        Account account = accounts.findByIbanForUpdate(Iban.normalize(iban))
+                .orElseThrow(() -> ApiException.notFound("CUENTA_NO_ENCONTRADA", "Cuenta no encontrada"));
         if (!account.isActive()) {
             throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
         }
