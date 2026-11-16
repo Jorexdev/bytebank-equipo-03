@@ -44,6 +44,10 @@ public class AccountsClient {
         return post("/internal/accounts/credit", new MovementRequest(reference, iban, amount, "TRANSFERENCIA_RECIBIDA", concept));
     }
 
+    public LedgerResult refund(String reference, String iban, BigDecimal amount, String concept) {
+        return post("/internal/accounts/credit", new MovementRequest(reference, iban, amount, "INGRESO", concept));
+    }
+
     private LedgerResult post(String path, MovementRequest request) {
         return InternalClients.call(() -> client.post()
                 .uri(path)

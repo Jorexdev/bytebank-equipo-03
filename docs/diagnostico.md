@@ -56,7 +56,7 @@ Revisando el codigo y las notas del README hay varias cosas que quedaron a media
 
 * **Clave secreta del JWT hardcodeada:** En `common/security/SecurityConstants.java` el secret del JWT esta escrito directo en el codigo (`bytebank-secret-key-...`). Cualquiera que vea el repo puede generar tokens validos. Hay que sacarlo a variable de entorno
 * **Misma clave interna para todo:** La `INTERNAL_KEY` es compartida entre todos los servicios sin rotacion ni certificados mTLS entre ellos
-* **Falta de rollback o saga en transferencias:** Cuando se hace una transferencia primero se saca plata de una cuenta y luego se ingresa en la otra con llamadas http normales. Si la segunda llamada falla la plata ya salio del origen y no hay un mecanismo que la devuelva automaticamente
+* **Falta de rollback o saga completa en transferencias:** Cuando se hace una transferencia primero se saca plata de una cuenta y luego se ingresa en la otra con llamadas http normales. Ahora se reembolsa el cargo si falla el abono al destino (ver seccion 6), pero sigue sin haber idempotencia ni outbox, asi que un timeout ambiguo puede requerir conciliacion manual
 * **Unico servidor de Postgres:** Todas las bases de datos de los servicios estan metidas en el mismo contenedor de postgres, si se cae ese contenedor se cae todo el sistema
 * **Ojo con volumenes viejos de Docker:** Si alguien intento levantar docker antes de arreglar la migracion V3 de accounts, la base de datos de postgres puede haber guardado el error de flyway. Si pasa eso hay que hacer `docker compose down -v` para limpiar los volumenes y arrancar limpio
 
@@ -88,3 +88,35 @@ Resultado: 3 tests de `common` y 8 tests de `ms-transfers` en verde (0 fallos, 0
 **Riesgo residual:** `ms-accounts` sigue sin validar el importe en `MovementRequest`, por lo que `/internal/accounts/debit` y `/internal/accounts/credit` aceptarian importes negativos si se llaman directamente. 
 Queda fuera del alcance de `ms-transfers` y deberian tratarse.
 
+---
+
+## 6. Bug detectado y corregido: transferencia a cuenta bloqueada que pierde el dinero
+
+**Sintoma reportado por soporte:** Ana transfiere 50 EUR a una cuenta que estaba bloqueada. La transferencia sale como rechazada, pero a Ana le descuentan los 50 EUR y el dinero no llega a ninguna cuenta.
+
+**Causa raiz:** En `ms-transfers/.../TransferService.java` se hacia primero el cargo en la cuenta de origen y despues el abono en la de destino. Si el destino estaba bloqueado, `ms-accounts` devolvia `CUENTA_NO_OPERATIVA` al intentar el abono. El servicio marcaba la transferencia como `RECHAZADA`, pero no revertia el cargo que ya habia hecho, asi que el dinero quedaba descontado del origen y no aparecia en el destino.
+
+**Reproduccion:** Se anadio el test `doesNotDebitWhenDestinationIsBlocked` en `TransferServiceTest`. Antes de la correccion el servicio llamaba a `debit` antes de detectar el bloqueo; ahora el test comprueba que no se ejecuta ningun cargo ni abono cuando el destino no esta operativo. Tambien se anadio `doesNotDebitWhenDestinationDoesNotExist` para el caso de un IBAN de destino inexistente.
+
+**Solucion aplicada (solo en `ms-transfers`):**
+
+1. **Prevalidacion del destino:** Antes de mover dinero, si el destino es de ByteBank se consulta `GET /internal/accounts/{iban}`. Si la cuenta no existe o no esta `ACTIVA`, la transferencia se guarda como `RECHAZADA` con el motivo correspondiente y no se ejecuta ningun cargo.
+2. **Reembolso compensatorio:** Si el cargo en origen ya se ha hecho y el abono en destino falla (por ejemplo, porque la cuenta se bloquea entre la validacion y el abono), se llama a `AccountsClient.refund`, que registra un `INGRESO` en la cuenta de origen con referencia `TRF-{id}-REV` y concepto de reversion. Despues la transferencia queda `RECHAZADA` con el codigo original.
+3. **Fallo del reembolso:** Si el reembolso tambien falla, se guarda la transferencia como `RECHAZADA` con `rejectionReason = "REVERSION_FALLIDA"` y se registra un error en el log para conciliacion manual. No se reintenta automaticamente porque `ms-accounts` todavia no soporta claves de idempotencia.
+
+Adicional al bug de la cuenta bloqueada, se detecto que el mismo fallo de control de acceso permitia a un usuario mover dinero desde cuentas ajenas si conocia el IBAN. Por ejemplo, Ana podia hacer una transferencia desde la cuenta de Luis y el sistema no lo detectaba.
+**Causa raiz:** `ms-transfers/.../TransferService.java` llamaba a `accountsClient.getAccount(origin)` para comprobar que la cuenta existia, pero descartaba la respuesta y no comparaba el `ownerId` de la cuenta con el `id` del usuario autenticado. El endpoint interno de debito de `ms-accounts` tampoco recibe el usuario, solo la clave interna, asi que no podia aplicar esta autorizacion. El resultado era un fallo de control de acceso tipo IDOR: la victima perdia dinero desde su propia cuenta.
+
+**Solucion aplicada (solo en `ms-transfers`):** Antes de guardar la transferencia, validar el destino o mover dinero, `TransferService.create` recupera la cuenta origen y comprueba su titular:
+
+La respuesta es `403 ACCESO_DENEGADO`. No se usa `409 Conflict` porque no es un conflicto de estado de la cuenta, sino un problema de autorizacion. Se mantiene el mismo criterio que `ms-accounts` aplica en SEG-01 para consultas de cuentas ajenas.
+
+**Tests anadidos:** `doesNotDebitWhenDestinationIsBlocked`, `doesNotDebitWhenDestinationDoesNotExist`, `refundsOriginWhenCreditFails` y `marksReversionFailedWhenRefundFails` en `TransferServiceTest`.
+`rejectsTransferFromAccountOwnedByAnotherUser` en `TransferServiceTest`. Verifica que la peticion falla con `403 ACCESO_DENEGADO` y que no se guarda la transferencia ni se ejecuta ningun cargo, abono o reembolso.
+
+Resultado actual: 9 tests de `common` y 12 tests de `ms-transfers` en verde (0 fallos, 0 errores).
+
+**Riesgo residual:** Los endpoints internos de `ms-accounts` siguen confiando en la `X-Internal-Key` y no reciben el usuario autenticado, por lo que la autorizacion depende de que cada servicio que los invoca la aplique correctamente. Como mejora de defensa en profundidad se podria anadir el `userId` al contrato interno de debito y validar tambien en `ms-accounts`, pero eso queda fuera de este ticket. 
+La compensacion cubre el caso normal de fallo del abono, pero no es una saga completa. Si `ms-accounts` confirma el abono pero la respuesta se pierde por timeout, `ms-transfers` podria reembolsar al origen y duplicar el dinero. Para cerrar ese hueco hace falta idempotencia y outbox en `ms-accounts`/`ms-transfers`, fuera del alcance de este ticket.
+
+---
