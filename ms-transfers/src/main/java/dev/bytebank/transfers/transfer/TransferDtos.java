@@ -1,8 +1,9 @@
 package dev.bytebank.transfers.transfer;
 
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -17,7 +18,8 @@ public final class TransferDtos {
             @NotBlank String originIban,
             @NotBlank String destinationIban,
             @NotNull
-            @Positive(message = "El importe debe ser mayor que cero")
+            @DecimalMin(value = "0.01", message = "El importe debe ser mayor que cero")
+            @Digits(integer = 15, fraction = 2, message = "El importe no es válido")
             BigDecimal amount,
             @Size(max = 140) String concept) {
     }
