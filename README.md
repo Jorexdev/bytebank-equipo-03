@@ -64,8 +64,9 @@ Notas para quien coja el proyecto:
 
 - **ms-cards** está a medias: se pueden listar y bloquear tarjetas, pero emitir y pagar devuelven 501.
   El contrato acordado está en [docs/contratos/ms-cards.md](docs/contratos/ms-cards.md).
-- **ms-fraud** funciona por su cuenta, pero ms-transfers todavía no lo llama. Falta también la regla de frecuencia.
-  Ver [docs/fraude.md](docs/fraude.md).
+- **ms-fraud** ya está integrado: ms-transfers consulta el antifraude antes de mover el dinero.
+  Si ms-fraud no responde la transferencia falla con 503 (fail-closed) y los importes de más de 5.000 €
+  quedan en revisión. Ver [docs/fraude.md](docs/fraude.md).
 - **ms-notifications** ya recibe los movimientos de Kafka y guarda los avisos, pero falta el endpoint para
   consultarlos. Contrato en [docs/contratos/ms-notifications.md](docs/contratos/ms-notifications.md).
 - Algunos clientes se han quejado del extracto de movimientos. No me ha dado tiempo a mirarlo.

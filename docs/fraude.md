@@ -35,7 +35,32 @@ Respuesta:
 { "checkId": 17, "verdict": "REVISAR", "reasons": ["EXTERNA_IMPORTE_ALTO"] }
 ```
 
+## Cómo actúa ms-transfers
+
+`ms-transfers` llama a este endpoint en cada transferencia, después de prevalidar el destino y antes
+de mover dinero. Con la respuesta aplica lo siguiente:
+
+| Veredicto | Qué hace ms-transfers |
+|---|---|
+| `APROBADA` | Continúa con el cargo y el abono normal |
+| `REVISAR` | Guarda la transferencia como `PENDIENTE_REVISION`, sin mover dinero |
+| `BLOQUEADA` | Guarda la transferencia como `RECHAZADA` con `FRAUDE_DETECTADO`, sin mover dinero |
+
+Además:
+
+- **Fail-closed:** si `ms-fraud` no responde o la respuesta no trae veredicto, la operación falla con
+  `503 SERVICIO_NO_DISPONIBLE`. No se guarda la transferencia ni se toca el dinero.
+- **Umbral local:** `ms-transfers` también pone en `PENDIENTE_REVISION` los importes de más de 5.000 €
+  aunque el veredicto sea `APROBADA` (con 5.000,00 € exactos se ejecuta). Se configura en la
+  `application.yml` de `ms-transfers` (`bytebank.transfers.review-threshold`, variable
+  `TRANSFERS_REVIEW_THRESHOLD`).
+- Cada transferencia guarda el `checkId` y el veredicto en las columnas `fraud_check_id` y
+  `fraud_verdict` de su tabla (migración `V2__transfers.sql`).
+
 ## Pendiente
 
-- ms-transfers todavía no llama a ms-fraud.
-- Decidir qué hace ms-transfers si ms-fraud no responde. Negocio no lo ha cerrado.
+- Endpoints de gestor para listar/aprobar/rechazar las transferencias en `PENDIENTE_REVISION`
+  (otro ticket).
+- Los motivos de fraude (`reasons`) van al log pero no se persisten; en `REVISAR` se guarda un
+  motivo genérico (`TRANSFERENCIA_EN_REVISION`). Falta decidir si se guardan y si también se
+  persisten en `BLOQUEADA`.
