@@ -22,6 +22,8 @@ bytebank:
   services:
     accounts-url: ${ACCOUNTS_URL:http://localhost:8082}
     fraud-url: ${FRAUD_URL:http://localhost:8085}
+  transfers:
+    review-threshold: ${TRANSFERS_REVIEW_THRESHOLD:5000}
 
 management:
   endpoints:
