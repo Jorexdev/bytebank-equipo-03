@@ -34,4 +34,45 @@ class TransferDtosTest {
 
         assertThat(validator.validate(request)).isEmpty();
     }
+
+    @Test
+    void rejectsAmountBelowMinimum() {
+        var request = new CreateTransferRequest(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("0.001"), "Cena");
+
+        assertThat(validator.validate(request))
+                .anySatisfy(v -> {
+                    assertThat(v.getPropertyPath().toString()).isEqualTo("amount");
+                    assertThat(v.getMessage()).isEqualTo("El importe no es válido");
+                });
+    }
+
+    @Test
+    void rejectsAmountWithTooManyIntegerDigits() {
+        var request = new CreateTransferRequest(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("10000000000000000.00"), "Cena");
+
+        assertThat(validator.validate(request))
+                .singleElement()
+                .satisfies(v -> {
+                    assertThat(v.getPropertyPath().toString()).isEqualTo("amount");
+                    assertThat(v.getMessage()).isEqualTo("El importe no es válido");
+                });
+    }
+
+    @Test
+    void acceptsAmountAtMaximum() {
+        var request = new CreateTransferRequest(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("999999999999999.99"), "Cena");
+
+        assertThat(validator.validate(request)).isEmpty();
+    }
+
+    @Test
+    void acceptsMinimumAmount() {
+        var request = new CreateTransferRequest(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("0.01"), "Cena");
+
+        assertThat(validator.validate(request)).isEmpty();
+    }
 }
