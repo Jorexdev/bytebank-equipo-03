@@ -44,6 +44,8 @@ Respuesta `201`:
     desde las 00:00 (hora de Madrid);
   - la cuenta no tiene saldo o no está activa: el código que devuelva ms-accounts (`FONDOS_INSUFICIENTES`,
     `CUENTA_NO_OPERATIVA`).
+- Los pagos de una misma tarjeta se serializan con un bloqueo pesimista: dos cobros concurrentes no pueden
+  superar el límite diario entre ambos.
 - Un pago aprobado genera un movimiento `PAGO_TARJETA` en la cuenta.
 - Los pagos rechazados también se guardan, para que el cliente los vea en su historial.
 

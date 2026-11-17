@@ -81,7 +81,9 @@ public class CardService {
     /** Cobra un pago con la tarjeta. Ver docs/contratos/ms-cards.md. */
     @Transactional
     public CardPayment pay(Long id, BigDecimal amount, String merchant, AuthUser user) {
-        Card card = get(id, user);
+        // El bloqueo se mantiene hasta el commit: dos pagos simultáneos no pueden calcular
+        // el gasto del día a la vez y saltarse entre ambos el límite diario.
+        Card card = getForUpdate(id, user);
         CardPayment payment = new CardPayment(card.getId(), amount, merchant, clock.instant());
 
         if (!card.isActive()) {
@@ -111,6 +113,14 @@ public class CardService {
     public List<CardPayment> payments(Long id, AuthUser user) {
         Card card = get(id, user);
         return payments.findByCardIdOrderByCreatedAtDescIdDesc(card.getId());
+    }
+
+    private Card getForUpdate(Long id, AuthUser user) {
+        Card card = cards.findByIdForUpdate(id).orElseThrow(() -> notFound(id));
+        if (!card.getUserId().equals(user.id())) {
+            throw notFound(id);
+        }
+        return card;
     }
 
     private Instant startOfToday() {
