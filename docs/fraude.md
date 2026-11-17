@@ -9,7 +9,7 @@ ms-fraud recibe cada transferencia antes de ejecutarse y devuelve un veredicto:
 | `BLOQUEADA` | Se rechaza |
 
 Si saltan varias reglas, gana el veredicto más grave. Cada validación queda guardada (tabla `fraud_checks`)
-y los gestores pueden consultarlas en `GET /api/fraud/checks?iban=...`.
+y los gestores pueden consultarlas en `GET /api/fraud/checks?iban=...` (solo rol `GESTOR`; un `CLIENTE` recibe 403).
 
 ## Reglas acordadas con negocio
 
