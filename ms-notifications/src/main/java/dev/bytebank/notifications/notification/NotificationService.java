@@ -7,8 +7,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-
 @Service
 public class NotificationService {
 
@@ -36,8 +34,8 @@ public class NotificationService {
                 event.movementId(),
                 event.iban(),
                 event.type(),
-                BigDecimal.valueOf(event.amount()),
-                BigDecimal.valueOf(event.balanceAfter()),
+                event.amount(),
+                event.balanceAfter(),
                 event.reference(),
                 NotificationMessages.of(event),
                 event.createdAt()
