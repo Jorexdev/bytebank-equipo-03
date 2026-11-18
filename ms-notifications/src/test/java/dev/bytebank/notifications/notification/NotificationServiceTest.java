@@ -68,12 +68,36 @@ class NotificationServiceTest {
 
     @Test
     void noGuardaUnMovimientoQueYaTieneAviso() {
-        when(repositorio.existsByMovementId(7L)).thenReturn(true);
+        when(repositorio.existsByMovementIdAndUserId(7L, 2L)).thenReturn(true);
 
         servicio.notifyOwner(this.evento(7L));
 
+        verify(repositorio).existsByMovementIdAndUserId(7L, 2L);
         verify(repositorio, never()).saveAndFlush(any());
         verify(repositorio, never()).save(any());
+    }
+
+    @Test
+    void guardaElMismoMovimientoParaUsuariosDistintos() {
+        MovementEvent eventoUsuarioDos = this.evento(13L);
+        MovementEvent eventoUsuarioTres = new MovementEvent(
+                13L, IBAN, 3L, "INGRESO",
+                new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-1", Instant.now()
+        );
+
+        servicio.notifyOwner(eventoUsuarioDos);
+        servicio.notifyOwner(eventoUsuarioTres);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(repositorio, times(2)).saveAndFlush(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(Notification::getMovementId)
+                .containsExactly(13L, 13L);
+        assertThat(captor.getAllValues())
+                .extracting(Notification::getUserId)
+                .containsExactly(2L, 3L);
+        verify(repositorio).existsByMovementIdAndUserId(13L, 2L);
+        verify(repositorio).existsByMovementIdAndUserId(13L, 3L);
     }
 
     @Test
@@ -90,7 +114,7 @@ class NotificationServiceTest {
 
     @Test
     void ignoraElConflictoCuandoOtroProcesamientoGanoLaCarrera() {
-        when(repositorio.existsByMovementId(8L)).thenReturn(false);
+        when(repositorio.existsByMovementIdAndUserId(8L, 2L)).thenReturn(false);
         when(repositorio.saveAndFlush(any()))
                 .thenThrow(new DataIntegrityViolationException("movimiento duplicado"));
 
