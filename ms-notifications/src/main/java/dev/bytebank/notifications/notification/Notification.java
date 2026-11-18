@@ -21,7 +21,7 @@ public class Notification {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(name = "movement_id", nullable = false)
+    @Column(name = "movement_id", nullable = false, unique = true)
     private Long movementId;
 
     @Column(nullable = false, length = 34)
