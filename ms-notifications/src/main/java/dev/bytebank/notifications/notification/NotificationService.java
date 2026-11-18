@@ -28,7 +28,7 @@ public class NotificationService {
     }
 
     public void notifyOwner(MovementEvent event) {
-        if (this.movementWasAlreadyNotified(event.movementId())) return;
+        if (this.movementWasAlreadyNotified(event.movementId(), event.ownerId())) return;
 
         Notification notification = this.createNotification(event);
 
@@ -40,8 +40,8 @@ public class NotificationService {
         }
     }
 
-    private boolean movementWasAlreadyNotified(Long movementId) {
-        if (notificationRepository.existsByMovementId(movementId)) {
+    private boolean movementWasAlreadyNotified(Long movementId, Long userId) {
+        if (notificationRepository.existsByMovementIdAndUserId(movementId, userId)) {
             log.info("El movimiento {} ya tiene un aviso; se ignora el evento repetido", movementId);
             return true;
         }
