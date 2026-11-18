@@ -108,7 +108,7 @@ class CardServiceTest {
     @DisplayName("Aprueba un pago dentro del límite y debita con referencia PAGO_TARJETA")
     void approvesPaymentWithinLimit() {
         Card card = card(1L, ANA.id(), CardStatus.ACTIVA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
         when(payments.sumAmountSince(1L, PaymentStatus.APROBADO, START_OF_DAY_MADRID)).thenReturn(BigDecimal.ZERO);
 
         CardPayment result = service.pay(1L, new BigDecimal("42.50"), "Supermercado", ANA);
@@ -125,7 +125,7 @@ class CardServiceTest {
     @DisplayName("Aprueba un pago que deja el gasto justo en el límite diario")
     void approvesPaymentReachingExactLimit() {
         Card card = card(1L, ANA.id(), CardStatus.ACTIVA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
         when(payments.sumAmountSince(1L, PaymentStatus.APROBADO, START_OF_DAY_MADRID))
                 .thenReturn(new BigDecimal("580.00"));
 
@@ -138,7 +138,7 @@ class CardServiceTest {
     @DisplayName("Rechaza el pago si la tarjeta está bloqueada, sin debitar")
     void rejectsBlockedCard() {
         Card card = card(1L, ANA.id(), CardStatus.BLOQUEADA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
 
         CardPayment result = service.pay(1L, new BigDecimal("10.00"), "Supermercado", ANA);
 
@@ -151,7 +151,7 @@ class CardServiceTest {
     @DisplayName("Rechaza el pago si supera el límite diario, sin debitar")
     void rejectsPaymentOverDailyLimit() {
         Card card = card(1L, ANA.id(), CardStatus.ACTIVA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
         when(payments.sumAmountSince(1L, PaymentStatus.APROBADO, START_OF_DAY_MADRID))
                 .thenReturn(new BigDecimal("590.00"));
 
@@ -166,7 +166,7 @@ class CardServiceTest {
     @DisplayName("Guarda como rechazado el pago si accounts devuelve FONDOS_INSUFICIENTES")
     void rejectsPaymentWithoutFunds() {
         Card card = card(1L, ANA.id(), CardStatus.ACTIVA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
         when(payments.sumAmountSince(1L, PaymentStatus.APROBADO, START_OF_DAY_MADRID)).thenReturn(BigDecimal.ZERO);
         when(accountsClient.debit(anyString(), eq(IBAN), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "FONDOS_INSUFICIENTES", "Saldo insuficiente"));
@@ -182,7 +182,7 @@ class CardServiceTest {
     @DisplayName("Guarda como rechazado el pago si accounts devuelve CUENTA_NO_OPERATIVA")
     void rejectsPaymentOnInactiveAccount() {
         Card card = card(1L, ANA.id(), CardStatus.ACTIVA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
         when(payments.sumAmountSince(1L, PaymentStatus.APROBADO, START_OF_DAY_MADRID)).thenReturn(BigDecimal.ZERO);
         when(accountsClient.debit(anyString(), eq(IBAN), any(), any()))
                 .thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
@@ -196,7 +196,7 @@ class CardServiceTest {
     @DisplayName("Propaga 503 y no guarda el pago si accounts no responde")
     void propagatesUnavailableAndDoesNotSavePayment() {
         Card card = card(1L, ANA.id(), CardStatus.ACTIVA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
         when(payments.sumAmountSince(1L, PaymentStatus.APROBADO, START_OF_DAY_MADRID)).thenReturn(BigDecimal.ZERO);
         when(accountsClient.debit(anyString(), eq(IBAN), any(), any()))
                 .thenThrow(new RemoteUnavailableException("caído"));
@@ -215,7 +215,7 @@ class CardServiceTest {
     @DisplayName("No permite pagar con una tarjeta de otro usuario: 404 TARJETA_NO_ENCONTRADA")
     void cannotPayWithAnotherUsersCard() {
         Card card = card(1L, 99L, CardStatus.ACTIVA);
-        when(cards.findById(1L)).thenReturn(Optional.of(card));
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
 
         assertApiError(() -> service.pay(1L, new BigDecimal("10.00"), "Supermercado", ANA),
                 HttpStatus.NOT_FOUND, "TARJETA_NO_ENCONTRADA");
