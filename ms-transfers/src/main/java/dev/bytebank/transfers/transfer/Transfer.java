@@ -44,6 +44,12 @@ public class Transfer {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+    @Column(name = "review_reason", length = 255)
+    private String reviewReason;
+    @Column(name = "fraud_verdict", length = 20)
+    private String fraudVerdict;
+    @Column(name = "fraud_check_id")
+    private Long fraudCheckId;
 
     protected Transfer() {
     }
@@ -70,6 +76,15 @@ public class Transfer {
     public void reject(String reason) {
         this.status = TransferStatus.RECHAZADA;
         this.rejectionReason = reason;
+    }
+
+    public void pendingReview(String reason) {
+        this.status = TransferStatus.PENDIENTE_REVISION;
+        this.reviewReason = reason;
+    }
+    public void recordFraudCheckResult(String verdict, Long checkId) {
+        this.fraudVerdict = verdict;
+        this.fraudCheckId = checkId;
     }
 
     public Long getId() {
@@ -106,5 +121,17 @@ public class Transfer {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getReviewReason() {
+        return reviewReason;
+    }
+
+    public String getFraudVerdict() {
+        return fraudVerdict;
+    }
+
+    public Long getFraudCheckId() {
+        return fraudCheckId;
     }
 }

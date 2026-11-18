@@ -5,12 +5,16 @@ import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.web.PageResponse;
 import dev.bytebank.transfers.client.AccountsClient;
+import dev.bytebank.transfers.client.FraudClient;
 import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
 import dev.bytebank.transfers.transfer.TransferDtos.TransferResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -24,10 +28,15 @@ public class TransferService {
 
     private final TransferRepository transfers;
     private final AccountsClient accountsClient;
+    private final FraudClient fraudClient;
+    private final BigDecimal reviewThreshold;
 
-    public TransferService(TransferRepository transfers, AccountsClient accountsClient) {
+    public TransferService(TransferRepository transfers, AccountsClient accountsClient, FraudClient fraudClient,
+                           @Value("${bytebank.transfers.review-threshold:5000}") BigDecimal reviewThreshold) {
         this.transfers = transfers;
         this.accountsClient = accountsClient;
+        this.fraudClient = fraudClient;
+        this.reviewThreshold = reviewThreshold;
     }
 
     public Transfer create(CreateTransferRequest request, AuthUser user) {
@@ -49,8 +58,6 @@ public class TransferService {
             throw ApiException.forbidden("No puedes transferir desde una cuenta que no es tuya");
         }
 
-        // TODO validar con ms-fraud antes de ejecutar (ver docs/fraude.md)
-
         Transfer transfer = new Transfer(origin, destination, amount, request.concept(), user.id());
 
         if (Iban.isOwnBank(destination)) {
@@ -66,6 +73,29 @@ public class TransferService {
                 log.info("Transferencia rechazada: {}", e.getCode());
                 return transfers.save(transfer);
             }
+        }
+        FraudClient.FraudCheckResponse fraudCheckResponse =
+        fraudClient.check(new FraudClient.FraudCheckRequest(origin, destination, user.id(), amount));
+
+        if (fraudCheckResponse == null || fraudCheckResponse.verdict() == null) {
+            log.info("Transferencia al IBAN {} no realizada. Error ms-fraud", transfer.getDestinationIban());
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,"SERVICIO_NO_DISPONIBLE",
+                    "No se pudo realizar la verificación de fraude para la transferencia.");
+        }
+        transfer.recordFraudCheckResult(fraudCheckResponse.verdict().name(), fraudCheckResponse.checkId());
+        if (fraudCheckResponse.verdict() == FraudClient.Verdict.BLOQUEADA) {
+            transfer.reject("FRAUDE_DETECTADO");
+            log.info("Transferencia al IBAN {} rechazada: FRAUDE_DETECTADO", transfer.getDestinationIban());
+            return transfers.save(transfer);
+        } else if (fraudCheckResponse.verdict() == FraudClient.Verdict.REVISAR) {
+            transfer.pendingReview("TRANSFERENCIA_EN_REVISION");
+            log.info("Transferencia al IBAN {} en revisión: {}", transfer.getDestinationIban(), fraudCheckResponse.reasons());
+            return transfers.save(transfer);
+        }
+        if (amount.compareTo(reviewThreshold) > 0) {
+            transfer.pendingReview("TRANSFERENCIA_SUPERA_UMBRAL");
+            log.info("Transferencia al IBAN {} en revisión: supera el umbral de {}", transfer.getDestinationIban(), reviewThreshold);
+            return transfers.save(transfer);
         }
 
         transfer = transfers.save(transfer);
@@ -114,7 +144,7 @@ public class TransferService {
     }
 
     public PageResponse<TransferResponse> list(int page, int size, AuthUser user) {
-        var result = transfers.findByCreatedBy(user.id(), PageRequest.of(page, size, NEWEST_FIRST));
+        Page<Transfer> result = transfers.findByCreatedBy(user.id(), PageRequest.of(page, size, NEWEST_FIRST));
         return PageResponse.of(result, TransferResponse::from);
     }
 }

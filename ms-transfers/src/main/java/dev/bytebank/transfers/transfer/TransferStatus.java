@@ -2,5 +2,6 @@ package dev.bytebank.transfers.transfer;
 
 public enum TransferStatus {
     COMPLETADA,
-    RECHAZADA
+    RECHAZADA,
+    PENDIENTE_REVISION
 }

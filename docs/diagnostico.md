@@ -47,7 +47,7 @@ Revisando el codigo y las notas del README hay varias cosas que quedaron a media
 
 * **ms-cards:** Los endpoints de emitir tarjeta (`POST /api/cards`) y de pagar (`POST /api/cards/{id}/payments`) devuelven 501 Not Implemented, estan sin terminar
 * **ms-notifications:** Ya recibe los eventos de movimientos desde Kafka y los guarda, pero no tiene implementado el endpoint `GET /api/notifications` para que el cliente pueda consultarlos
-* **ms-fraud:** El servicio de transferencias todavia no consulta a ms-fraud antes de mover el dinero, y en fraud falta programar la regla de frecuencia de transferencias
+* **ms-fraud:** Resuelto. `ms-transfers` ya consulta `ms-fraud` antes de mover el dinero (ver seccion 7) y la regla de frecuencia esta implementada. Queda pendiente el endpoint de gestor para revisar las transferencias en `PENDIENTE_REVISION
 * **Extracto de cuentas:** Hay que revisar la logica del extracto de movimientos en ms-accounts porque hay quejas reportadas
 
 ---
@@ -118,5 +118,61 @@ Resultado actual: 9 tests de `common` y 12 tests de `ms-transfers` en verde (0 f
 
 **Riesgo residual:** Los endpoints internos de `ms-accounts` siguen confiando en la `X-Internal-Key` y no reciben el usuario autenticado, por lo que la autorizacion depende de que cada servicio que los invoca la aplique correctamente. Como mejora de defensa en profundidad se podria anadir el `userId` al contrato interno de debito y validar tambien en `ms-accounts`, pero eso queda fuera de este ticket. 
 La compensacion cubre el caso normal de fallo del abono, pero no es una saga completa. Si `ms-accounts` confirma el abono pero la respuesta se pierde por timeout, `ms-transfers` podria reembolsar al origen y duplicar el dinero. Para cerrar ese hueco hace falta idempotencia y outbox en `ms-accounts`/`ms-transfers`, fuera del alcance de este ticket.
+
+---
+
+## 7. Integracion del antifraude en ms-transfers (ticket FRA-01)
+
+**Problema:** `ms-transfers` movia el dinero sin pasar por `ms-fraud`. Las reglas de antifraude existian en el servicio de fraude pero no se aplicaban en el flujo real de transferencias, asi que una transferencia de 30.000 EUR a otra entidad se ejecutaba sin ninguna revision.
+
+**Solucion aplicada (solo en `ms-transfers`, `ms-fraud` no se ha tocado):**
+
+1. **Cliente interno:** `ms-transfers/.../client/FraudClient.java` llama a `POST /internal/fraud/check` de `ms-fraud` con la clave interna (`X-Internal-Key`) usando `InternalClients`, que ya anade el header y los timeouts (2s conexion / 5s lectura). La URL viene de `bytebank.services.fraud-url` en `application.yml`. El contrato es el mismo que publica `ms-fraud`: envia `{originIban, destinationIban, userId, amount}` y recibe `{checkId, verdict, reasons}`.
+2. **Punto de la llamada:** en `TransferService.create`, despues de la prevalidacion del destino y antes de guardar la transferencia o hacer el cargo. Si el destino ya es invalido, no se consulta fraude.
+3. **Tratamiento de los veredictos:**
+   * `APROBADA` -> el flujo continua con el cargo y el abono normal.
+   * `REVISAR` -> la transferencia se guarda con el nuevo estado `PENDIENTE_REVISION` y no se mueve dinero. Un gestor tendra que aprobarla despues (endpoint pendiente, otro ticket).
+   * `BLOQUEADA` -> la transferencia se guarda como `RECHAZADA` con `FRAUDE_DETECTADO` y no se mueve dinero.
+4. **Fail-closed:** si `ms-fraud` cae, no responde o devuelve una respuesta sin veredicto, se lanza `503 SERVICIO_NO_DISPONIBLE`. En ese caso no se guarda la transferencia ni se toca el dinero: mejor rechazar la operacion que mover saldo sin revision.
+5. **Persistencia de la revision:** la migracion `ms-transfers/.../V2__transfers.sql` anade tres columnas a `transfers`: `fraud_check_id` (id de la validacion en ms-fraud), `fraud_verdict` (veredicto guardado como texto) y `review_reason` (motivo cuando queda pendiente). La entidad `Transfer` guarda esos datos con `recordFraudCheckResult` y los expone por getters.
+6. **Umbral local de revision:** en `application.yml` (`bytebank.transfers.review-threshold`, variable `TRANSFERS_REVIEW_THRESHOLD`, 5000 por defecto) se configura un importe de revision local de `ms-transfers`. Si el veredicto es `APROBADA` pero el importe supera el umbral, la transferencia queda `PENDIENTE_REVISION` con `TRANSFERENCIA_SUPERA_UMBRAL`. Con 5000.00 exactos se ejecuta. Es una regla de `ms-transfers`, distinta de las de `ms-fraud`.
+
+Las reglas que aplica `ms-fraud` en el endpoint interno siguen siendo: `IMPORTE_MAXIMO` (importe de 20.000 o mas bloquea), `EXTERNA_IMPORTE_ALTO` (externa de 1.000 o mas pide revision) y `FRECUENCIA_ALTA` (mas de 5 transferencias en 10 minutos bloquea). Si saltan varias, gana el veredicto mas grave.
+
+**Tests anadidos en `ms-transfers`:**
+
+* `TransferServiceTest` (16 tests): `rejectsTransferWhenFraudBlocksIt`, `marksTransferPendingWhenFraudRequestsReview`, `returnsServiceUnavailableWhenFraudReturnsNoVerdict`, `returnsServiceUnavailableWhenFraudIsDown`, `marksTransferPendingWhenAmountExceedsReviewThreshold`, `completesTransferAtReviewThreshold`, mas los 10 anteriores adaptados al constructor nuevo.
+* `TransferControllerTest` (tests nuevos): `page=-1`, `size=0` y `size=101` -> `400 DATOS_NO_VALIDOS`; importes invalidos -> `400` con detalle en `fields.amount`; listado y creacion validos -> `200` y `201`.
+* `TransferDtosTest` (tests nuevos): importe de 3 decimales, 17 digitos enteros, y limites `0.01` y `999999999999999.99`.
+
+Resultado: 9 tests de `common` y 29 tests de `ms-transfers` en verde (0 fallos, 0 errores).
+
+**Pendiente y riesgo residual:**
+
+* Los motivos concretos de fraude (`reasons`) van al log pero no se guardan: en `REVISAR` se guarda un motivo generico (`TRANSFERENCIA_EN_REVISION`). Falta decidir si se persisten y si tambien se guardan en `BLOQUEADA`.
+* No hay endpoints de gestor para listar/aprobar/rechazar las transferencias en `PENDIENTE_REVISION`; quedan en ese estado hasta que existan (otro ticket).
+* Fail-closed tiene un coste: si `ms-fraud` esta caido, no se puede transferir nada. Es una decision de negocio asumida para este ticket.
+* Las llamadas internas siguen sin idempotencia; si ms-fraud confirma el veredicto pero la respuesta se pierde, el reintento repite la validacion (no mueve dinero, asi que el riesgo es de disponibilidad, no de saldo).
+
+---
+
+## 8. Validaciones de entrada corregidas en ms-transfers (paginacion e importe)
+
+**Problema 1: paginacion sin validar.** `GET /api/transfers?page=-1` o `?size=0` llegaba a `TransferService.list`, que llamaba a `PageRequest.of(page, size, ...)` y lanzaba `IllegalArgumentException`. El manejador global la capturaba como `500 ERROR_INTERNO`, cuando en realidad es un fallo del cliente.
+
+**Solucion aplicada:** validacion en la entrada HTTP, igual que ya hacen `ms-accounts`, `ms-notifications` y `ms-fraud`:
+
+* `@Validated` a nivel de clase en `TransferController` para activar la validacion de parametros de metodo.
+* `@Min(0)` en `page` y `@Min(1) @Max(100)` en `size`.
+
+Al fallar, Spring lanza `ConstraintViolationException`, que el `GlobalExceptionHandler` de `common` ya traduce a `400 DATOS_NO_VALIDOS` sin tocar el handler ni el servicio. El maximo de 100 respeta la convencion del resto de controladores del proyecto.
+
+**Problema 2: importe insuficientemente validado.** `amount` solo tenia `@NotNull` y `@Positive`, y el servicio solo comprobaba `signum() <= 0`. Con `0.001` pasaba la validacion, se guardaba la transferencia (la columna `NUMERIC(19,2)` lo redondeaba a `0.00`), luego `ms-accounts` rechazaba el movimiento con `400` y el servicio lo capturaba devolviendo una transferencia `RECHAZADA` con importe `0.00` en un `201`. Con mas de 17 digitos enteros, el guardado en base de datos reventaba con `500`.
+
+**Solucion aplicada:** en `TransferDtos.CreateTransferRequest` se sustituyo `@Positive` por `@DecimalMin(value = "0.01")` y se anadio `@Digits(integer = 15, fraction = 2)`, el mismo contrato que usan `ms-accounts`, `ms-cards` y el ledger. La validacion del servicio (`IMPORTE_NO_VALIDO`) se mantiene como defensa para llamadas directas. Nota: 15 digitos es la convencion del repo, mas estricta que el `NUMERIC(19,2)` que admitiria 17; si negocio sube el limite habria que cambiarlo en los cuatro modulos a la vez.
+
+**Tests anadidos:** los de paginacion e importes invalidos en `TransferControllerTest`, y los limites de `amount` en `TransferDtosTest` (listados en la seccion 7).
+
+**Riesgo residual:** la validacion fina del importe vive en la capa HTTP de `ms-transfers`; una llamada directa a `TransferService.create` desde otro punto del codigo podria saltarsela si no pasa por el controlador. En el flujo actual eso no ocurre.
 
 ---
