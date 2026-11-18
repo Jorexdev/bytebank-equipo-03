@@ -13,6 +13,8 @@ ms-accounts  --(topic bytebank.movements)-->  ms-notifications  <--  GET /api/no
   misma partición y llegan en orden).
 - Valor: JSON.
 - Grupo de consumidores de ms-notifications: `ms-notifications`.
+- `amount` y `balanceAfter` son valores monetarios JSON decimales y se procesan como `BigDecimal`, sin conversiones a
+  `double`/punto flotante binario.
 
 ```json
 {

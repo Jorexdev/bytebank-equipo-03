@@ -1,5 +1,6 @@
 package dev.bytebank.notifications.event;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -10,8 +11,8 @@ public record MovementEvent(
         String iban,
         Long ownerId,
         String type,
-        double amount,
-        double balanceAfter,
+        BigDecimal amount,
+        BigDecimal balanceAfter,
         String concept,
         String reference,
         Instant createdAt

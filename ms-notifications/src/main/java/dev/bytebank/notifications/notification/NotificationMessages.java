@@ -2,6 +2,7 @@ package dev.bytebank.notifications.notification;
 
 import dev.bytebank.notifications.event.MovementEvent;
 
+import java.math.BigDecimal;
 import java.util.Locale;
 
 /**
@@ -15,7 +16,7 @@ final class NotificationMessages {
     }
 
     public static String of(MovementEvent event) {
-        String formattedAmount = formatAmount(Math.abs(event.amount()));
+        String formattedAmount = formatAmount(event.amount().abs());
         String account = buildAccountDisplay(event.iban());
         String concept = buildConceptDisplay(event.concept());
         String message = buildMessageByType(event.type(), formattedAmount, account, concept);
@@ -41,7 +42,7 @@ final class NotificationMessages {
         };
     }
 
-    private static String formatAmount(double value) {
+    private static String formatAmount(BigDecimal value) {
         return String.format(ES, "%,.2f €", value);
     }
 }
