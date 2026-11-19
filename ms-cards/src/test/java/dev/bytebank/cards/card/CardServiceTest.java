@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,7 +66,8 @@ class CardServiceTest {
     @Test
     @DisplayName("Emite una tarjeta con IBAN normalizado, last4, límite y fecha del reloj")
     void issuesCard() {
-        when(accountsClient.getAccount(IBAN)).thenReturn(new AccountInfo(IBAN, "ACTIVA", new BigDecimal("1000"), ANA.id()));
+        when(accountsClient.getAccount(IBAN))
+                .thenReturn(new AccountInfo(IBAN, "ACTIVA", new BigDecimal("1000"), ANA.id(), null));
 
         Card card = service.issue(" " + IBAN.toLowerCase() + " ", ANA);
 
@@ -89,7 +91,31 @@ class CardServiceTest {
     @Test
     @DisplayName("No emite para una cuenta de otro usuario: 404 CUENTA_NO_ENCONTRADA")
     void rejectsAccountOwnedByAnotherUser() {
-        when(accountsClient.getAccount(IBAN)).thenReturn(new AccountInfo(IBAN, "ACTIVA", new BigDecimal("1000"), 99L));
+        when(accountsClient.getAccount(IBAN))
+                .thenReturn(new AccountInfo(IBAN, "ACTIVA", new BigDecimal("1000"), 99L, null));
+
+        assertApiError(() -> service.issue(IBAN, ANA), HttpStatus.NOT_FOUND, "CUENTA_NO_ENCONTRADA");
+        verify(cards, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Permite emitir tarjeta a un cotitular que no es ownerId")
+    void allowsCoHolderToIssueCard() {
+        when(accountsClient.getAccount(IBAN))
+                .thenReturn(new AccountInfo(IBAN, "ACTIVA", new BigDecimal("1000"), 99L, List.of(99L, ANA.id())));
+
+        Card card = service.issue(IBAN, ANA);
+
+        assertThat(card.getUserId()).isEqualTo(ANA.id());
+        assertThat(card.getAccountIban()).isEqualTo(IBAN);
+        verify(cards).save(card);
+    }
+
+    @Test
+    @DisplayName("No emite tarjeta a un usuario que no está en holderIds: 404 CUENTA_NO_ENCONTRADA")
+    void rejectsUserOutsideHolderIds() {
+        when(accountsClient.getAccount(IBAN))
+                .thenReturn(new AccountInfo(IBAN, "ACTIVA", new BigDecimal("1000"), 99L, List.of(99L, 100L)));
 
         assertApiError(() -> service.issue(IBAN, ANA), HttpStatus.NOT_FOUND, "CUENTA_NO_ENCONTRADA");
         verify(cards, never()).save(any());
@@ -98,7 +124,8 @@ class CardServiceTest {
     @Test
     @DisplayName("No emite para una cuenta no activa: 409 CUENTA_NO_OPERATIVA")
     void rejectsInactiveAccount() {
-        when(accountsClient.getAccount(IBAN)).thenReturn(new AccountInfo(IBAN, "BLOQUEADA", new BigDecimal("1000"), ANA.id()));
+        when(accountsClient.getAccount(IBAN))
+                .thenReturn(new AccountInfo(IBAN, "BLOQUEADA", new BigDecimal("1000"), ANA.id(), null));
 
         assertApiError(() -> service.issue(IBAN, ANA), HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA");
         verify(cards, never()).save(any());

@@ -50,7 +50,7 @@ public class CardService {
             throw ApiException.badRequest("IBAN_NO_VALIDO", "El IBAN no es válido");
         }
         AccountInfo account = accountsClient.getAccount(normalized);
-        if (!user.id().equals(account.ownerId())) {
+        if (!account.isHolder(user.id())) {
             throw accountNotFound(normalized);
         }
         if (!account.isActive()) {

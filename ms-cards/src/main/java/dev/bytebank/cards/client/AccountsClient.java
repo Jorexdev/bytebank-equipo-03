@@ -6,6 +6,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Objects;
 
 @Component
 public class AccountsClient {
@@ -16,10 +18,17 @@ public class AccountsClient {
         this.client = clients.forService(accountsUrl);
     }
 
-    public record AccountInfo(String iban, String status, BigDecimal balance, Long ownerId) {
+    public record AccountInfo(String iban, String status, BigDecimal balance, Long ownerId, List<Long> holderIds) {
 
         public boolean isActive() {
             return "ACTIVA".equals(status);
+        }
+
+        public boolean isHolder(Long userId) {
+            if (holderIds == null || holderIds.isEmpty()) {
+                return Objects.equals(ownerId, userId);
+            }
+            return holderIds.contains(userId);
         }
     }
 

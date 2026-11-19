@@ -21,6 +21,7 @@ ms-accounts  --(topic bytebank.movements)-->  ms-notifications  <--  GET /api/no
   "movementId": 154,
   "iban": "ES7639990001000000000001",
   "ownerId": 2,
+  "holderIds": [2, 3],
   "type": "TRANSFERENCIA_EMITIDA",
   "amount": -50.00,
   "balanceAfter": 2450.00,
@@ -32,6 +33,8 @@ ms-accounts  --(topic bytebank.movements)-->  ms-notifications  <--  GET /api/no
 
 - `amount` lleva signo: positivo si entra dinero, negativo si sale (igual que en el extracto).
 - `type`: `INGRESO`, `TRANSFERENCIA_EMITIDA`, `TRANSFERENCIA_RECIBIDA`, `COMISION` o `PAGO_TARJETA`.
+- `holderIds`: titulares actuales de la cuenta (incluido el `ownerId`). Si un evento antiguo no trae el campo, se usa
+  `ownerId` como único destinatario.
 
 ## Reglas
 

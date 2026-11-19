@@ -10,7 +10,9 @@ Tarjetas de débito asociadas a una cuenta. Todas las rutas son para usuarios co
 { "iban": "ES7639990001000000000001" }
 ```
 
-- Solo el titular de la cuenta puede pedir una tarjeta. Si no es titular o la cuenta no existe: `404 CUENTA_NO_ENCONTRADA`.
+- Cualquier titular de la cuenta, incluidos los cotitulares, puede pedir una tarjeta. Si no es titular o la cuenta no
+  existe: `404 CUENTA_NO_ENCONTRADA`.
+- La tarjeta se emite a nombre del titular que la solicita.
 - La cuenta tiene que estar `ACTIVA`. Si no: `409 CUENTA_NO_OPERATIVA`.
 - Se genera un número del que solo se guardan los 4 últimos dígitos.
 - Límite diario por defecto: 600 € (`bytebank.cards.default-daily-limit`).
