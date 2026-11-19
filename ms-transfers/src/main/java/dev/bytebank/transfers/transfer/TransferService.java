@@ -54,7 +54,7 @@ public class TransferService {
             throw ApiException.badRequest("MISMA_CUENTA", "La cuenta de origen y la de destino son la misma");
         }
         AccountsClient.AccountInfo originAccount = accountsClient.getAccount(origin);
-        if (originAccount == null || !Objects.equals(originAccount.ownerId(), user.id())) {
+        if (originAccount == null || !originAccount.isHolder(user.id())) {
             throw ApiException.forbidden("No puedes transferir desde una cuenta que no es tuya");
         }
 
@@ -137,7 +137,12 @@ public class TransferService {
     public Transfer get(Long id, AuthUser user) {
         Transfer transfer = transfers.findById(id)
                 .orElseThrow(() -> ApiException.notFound("TRANSFERENCIA_NO_ENCONTRADA", "No existe la transferencia " + id));
-        if (!transfer.getCreatedBy().equals(user.id())) {
+        if (Objects.equals(transfer.getCreatedBy(), user.id()) || user.isGestor()) {
+            return transfer;
+        }
+
+        AccountsClient.AccountInfo originAccount = accountsClient.getAccount(transfer.getOriginIban());
+        if (originAccount == null || !originAccount.isHolder(user.id())) {
             throw ApiException.forbidden("No puedes ver esta transferencia");
         }
         return transfer;

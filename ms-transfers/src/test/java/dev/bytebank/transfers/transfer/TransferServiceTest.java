@@ -59,9 +59,10 @@ class TransferServiceTest {
     void setUp() {
         service = new TransferService(transfers, accounts, fraud, THRESHOLD);
         lenient().when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        lenient().when(accounts.getAccount(ORIGIN)).thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 2L));
+        lenient().when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 2L, null));
         lenient().when(accounts.getAccount(DESTINATION))
-                .thenReturn(new AccountInfo(DESTINATION, "ACTIVA", BigDecimal.ZERO, 3L));
+                .thenReturn(new AccountInfo(DESTINATION, "ACTIVA", BigDecimal.ZERO, 3L, null));
         lenient().when(fraud.check(any()))
                 .thenReturn(new FraudCheckResponse(1L, Verdict.APROBADA, List.of()));
     }
@@ -111,7 +112,7 @@ class TransferServiceTest {
     @Test
     void rejectsTransferFromAccountOwnedByAnotherUser() {
         when(accounts.getAccount(ORIGIN))
-                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L));
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L, null));
 
         assertThatThrownBy(() -> service.create(
                 new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA))
@@ -127,9 +128,21 @@ class TransferServiceTest {
     }
 
     @Test
+    void coHolderCanTransferFromSharedAccount() {
+        when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L, List.of(99L, ANA.id())));
+
+        Transfer t = service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+
+        assertThat(t.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
+        verify(accounts).debit(anyString(), eq(ORIGIN), eq(new BigDecimal("50.00")), any());
+    }
+
+    @Test
     void doesNotDebitWhenDestinationIsBlocked() {
         when(accounts.getAccount(DESTINATION))
-                .thenReturn(new AccountInfo(DESTINATION, "BLOQUEADA", BigDecimal.ZERO, 3L));
+                .thenReturn(new AccountInfo(DESTINATION, "BLOQUEADA", BigDecimal.ZERO, 3L, null));
 
         Transfer t = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
 
@@ -289,12 +302,38 @@ class TransferServiceTest {
     void getRejectsTransferOwnedByAnotherUser() {
         Transfer other = new Transfer(ORIGIN, DESTINATION, new BigDecimal("50.00"), null, 99L);
         when(transfers.findById(1L)).thenReturn(Optional.of(other));
+        when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L, List.of(99L)));
 
         assertThatThrownBy(() -> service.get(1L, ANA))
                 .isInstanceOfSatisfying(ApiException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
                     assertThat(e.getCode()).isEqualTo("ACCESO_DENEGADO");
                 });
+    }
+
+    @Test
+    void coHolderCanViewTransferOfSharedAccount() {
+        Transfer other = new Transfer(ORIGIN, DESTINATION, new BigDecimal("50.00"), null, 99L);
+        when(transfers.findById(1L)).thenReturn(Optional.of(other));
+        when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), 99L, List.of(99L, ANA.id())));
+
+        Transfer found = service.get(1L, ANA);
+
+        assertThat(found).isSameAs(other);
+    }
+
+    @Test
+    void gestorCanViewAnyTransfer() {
+        AuthUser gestor = new AuthUser(99L, "gestor@bytebank.test", Role.GESTOR);
+        Transfer other = new Transfer(ORIGIN, DESTINATION, new BigDecimal("50.00"), null, 77L);
+        when(transfers.findById(1L)).thenReturn(Optional.of(other));
+
+        Transfer found = service.get(1L, gestor);
+
+        assertThat(found).isSameAs(other);
+        verify(accounts, never()).getAccount(anyString());
     }
 
     @Test
