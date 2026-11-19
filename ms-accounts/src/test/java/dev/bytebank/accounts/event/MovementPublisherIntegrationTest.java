@@ -145,12 +145,61 @@ class MovementPublisherIntegrationTest extends IntegrationTest {
                 assertThat(event.movementId()).isEqualTo(savedMovement.getId());
                 assertThat(event.iban()).isEqualTo(originIban);
                 assertThat(event.ownerId()).isEqualTo(2L);
+                assertThat(event.holderIds()).isEqualTo(List.of(2L));
                 assertThat(event.type()).isEqualTo("TRANSFERENCIA_EMITIDA");
                 assertThat(event.amount()).isEqualByComparingTo("-25.00");
                 assertThat(event.balanceAfter()).isEqualByComparingTo("75.00");
                 assertThat(event.concept()).isEqualTo("Compra");
                 assertThat(event.reference()).isEqualTo("TRF-OK-1");
                 assertThat(event.createdAt()).isNotNull();
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("CAM-01 (BD + Kafka Real): un movimiento sobre cuenta compartida publica todos los holderIds tras el commit")
+    void publishesEventWithAllHolderIdsForSharedAccountAfterCommit() {
+        Account shared = accounts.findByIbanWithHolders(originIban).orElseThrow();
+        shared.addHolder(3L);
+        shared.addHolder(4L);
+        accounts.save(shared);
+
+        try (KafkaConsumer<String, String> consumer = createConsumer()) {
+            accountService.deposit(originIban, new BigDecimal("60.00"), "Aporte compartido");
+
+            List<MovementEvent> events = pollEventsForIban(consumer, Set.of(originIban), Duration.ofSeconds(5), true);
+            assertThat(events).singleElement().satisfies(event -> {
+                assertThat(event.iban()).isEqualTo(originIban);
+                assertThat(event.ownerId()).isEqualTo(2L);
+                assertThat(event.holderIds()).isEqualTo(List.of(2L, 3L, 4L));
+                assertThat(event.type()).isEqualTo("INGRESO");
+                assertThat(event.amount()).isEqualByComparingTo("60.00");
+                assertThat(event.balanceAfter()).isEqualByComparingTo("160.00");
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("CAM-01 (Ledger + Kafka Real): un cargo de transferencia sobre cuenta compartida publica todos los holderIds")
+    void publishesDebitEventWithAllHolderIdsForSharedAccountAfterCommit() {
+        Account shared = accounts.findByIbanWithHolders(originIban).orElseThrow();
+        shared.addHolder(3L);
+        shared.addHolder(4L);
+        accounts.save(shared);
+
+        try (KafkaConsumer<String, String> consumer = createConsumer()) {
+            ledgerService.debit(new MovementRequest(
+                    "TRF-SHARED-1", originIban, new BigDecimal("35.00"),
+                    MovementType.TRANSFERENCIA_EMITIDA, "Pago común"));
+
+            List<MovementEvent> events = pollEventsForIban(consumer, Set.of(originIban), Duration.ofSeconds(5), true);
+            assertThat(events).singleElement().satisfies(event -> {
+                assertThat(event.iban()).isEqualTo(originIban);
+                assertThat(event.ownerId()).isEqualTo(2L);
+                assertThat(event.holderIds()).isEqualTo(List.of(2L, 3L, 4L));
+                assertThat(event.type()).isEqualTo("TRANSFERENCIA_EMITIDA");
+                assertThat(event.amount()).isEqualByComparingTo("-35.00");
+                assertThat(event.balanceAfter()).isEqualByComparingTo("65.00");
             });
         }
     }

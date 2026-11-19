@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionSynchronizationUtils;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -101,6 +102,7 @@ class MovementPublisherTest {
         MovementEvent sent = objectMapper.readValue(payloadCaptor.getValue(), MovementEvent.class);
         assertThat(sent.iban()).isEqualTo(account.getIban());
         assertThat(sent.ownerId()).isEqualTo(2L);
+        assertThat(sent.holderIds()).isEqualTo(List.of(2L));
         assertThat(sent.type()).isEqualTo("INGRESO");
         assertThat(sent.amount()).isEqualByComparingTo("100.00");
         assertThat(sent.balanceAfter()).isEqualByComparingTo("100.00");
@@ -144,5 +146,45 @@ class MovementPublisherTest {
             TransactionSynchronizationUtils.triggerAfterCommit();
             TransactionSynchronizationUtils.triggerAfterCompletion(TransactionSynchronization.STATUS_COMMITTED);
         }).doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("CAM-01: el evento publicado en Kafka incluye ownerId y todos los holderIds de una cuenta compartida")
+    void includesAllAccountHolderIdsInPublishedMovementEvent() throws Exception {
+        account.addHolder(3L);
+        account.addHolder(4L);
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        publisher.publish(movement, account);
+        TransactionSynchronizationUtils.triggerAfterCommit();
+        TransactionSynchronizationUtils.triggerAfterCompletion(TransactionSynchronization.STATUS_COMMITTED);
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(kafka).send(eq(MovementEvent.TOPIC), eq(account.getIban()), payloadCaptor.capture());
+
+        MovementEvent sent = objectMapper.readValue(payloadCaptor.getValue(), MovementEvent.class);
+        assertThat(sent.ownerId()).isEqualTo(2L);
+        assertThat(sent.holderIds()).isEqualTo(List.of(2L, 3L, 4L));
+    }
+
+    @Test
+    @DisplayName("CAM-01: el snapshot de holderIds se congela en publish() y no se muta si se agrega un titular antes de afterCommit")
+    void capturesImmutableHolderIdsSnapshotBeforeAfterCommit() throws Exception {
+        account.addHolder(3L);
+        TransactionSynchronizationManager.initSynchronization();
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+
+        publisher.publish(movement, account);
+        account.addHolder(4L);
+
+        TransactionSynchronizationUtils.triggerAfterCommit();
+        TransactionSynchronizationUtils.triggerAfterCompletion(TransactionSynchronization.STATUS_COMMITTED);
+
+        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
+        verify(kafka).send(eq(MovementEvent.TOPIC), eq(account.getIban()), payloadCaptor.capture());
+
+        MovementEvent sent = objectMapper.readValue(payloadCaptor.getValue(), MovementEvent.class);
+        assertThat(sent.holderIds()).isEqualTo(List.of(2L, 3L));
     }
 }
