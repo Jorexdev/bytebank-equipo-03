@@ -1,20 +1,32 @@
 package dev.bytebank.accounts.account;
 
+import dev.bytebank.common.error.ApiException;
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 @Entity
 @Table(name = "accounts")
 public class Account {
+
+    public static final int MAX_HOLDERS = 4;
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -36,6 +48,11 @@ public class Account {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "account_holders", joinColumns = @JoinColumn(name = "account_id"))
+    @OrderBy("addedAt ASC, userId ASC")
+    private Set<AccountHolder> holders = new LinkedHashSet<>();
+
     protected Account() {
     }
 
@@ -45,10 +62,46 @@ public class Account {
         this.status = AccountStatus.ACTIVA;
         this.balance = BigDecimal.ZERO.setScale(2);
         this.createdAt = Instant.now();
+        this.holders.add(new AccountHolder(ownerId, this.createdAt));
     }
 
     public boolean isActive() {
         return status == AccountStatus.ACTIVA;
+    }
+
+    public boolean hasHolder(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        return holders.stream().anyMatch(h -> Objects.equals(h.getUserId(), userId));
+    }
+
+    public boolean isFull() {
+        return holders.size() >= MAX_HOLDERS;
+    }
+
+    public void addHolder(Long userId) {
+        Objects.requireNonNull(userId, "userId es obligatorio");
+        if (!isActive()) {
+            throw ApiException.conflict("CUENTA_NO_OPERATIVA", "La cuenta no está activa");
+        }
+        if (hasHolder(userId)) {
+            throw ApiException.conflict("TITULAR_YA_EXISTENTE", "El usuario ya es titular de esta cuenta");
+        }
+        if (isFull()) {
+            throw ApiException.conflict("MAXIMO_TITULARES_ALCANZADO",
+                    "Una cuenta no puede tener más de " + MAX_HOLDERS + " titulares");
+        }
+        holders.add(new AccountHolder(userId, Instant.now()));
+    }
+
+    /** Inicializa explícitamente la colección LAZY dentro de la transacción activa (open-in-view: false). */
+    public void initializeHolders() {
+        holders.size();
+    }
+
+    public List<Long> getHolderIds() {
+        return holders.stream().map(AccountHolder::getUserId).toList();
     }
 
     /** ¿Hay saldo suficiente para cargar este importe? */

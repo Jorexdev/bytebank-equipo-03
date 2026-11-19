@@ -1,6 +1,7 @@
 package dev.bytebank.accounts.account;
 
 import dev.bytebank.accounts.account.AccountDtos.AccountResponse;
+import dev.bytebank.accounts.account.AccountDtos.AddHolderRequest;
 import dev.bytebank.accounts.account.AccountDtos.ChangeStatusRequest;
 import dev.bytebank.accounts.account.AccountDtos.DepositRequest;
 import dev.bytebank.accounts.movement.MovementResponse;
@@ -79,5 +80,13 @@ public class AccountController {
     @PreAuthorize("hasRole('GESTOR')")
     public AccountResponse deposit(@PathVariable String iban, @Valid @RequestBody DepositRequest request) {
         return AccountResponse.from(accountService.deposit(iban, request.amount(), request.concept()));
+    }
+
+    /** Añade otro cliente como titular de la cuenta (máximo 4 titulares). */
+    @PostMapping("/{iban}/holders")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasRole('CLIENTE')")
+    public AccountResponse addHolder(@PathVariable String iban, @Valid @RequestBody AddHolderRequest request) {
+        return AccountResponse.from(accountService.addHolder(iban, request.email(), CurrentUser.get()));
     }
 }
