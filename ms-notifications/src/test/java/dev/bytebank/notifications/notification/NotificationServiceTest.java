@@ -9,6 +9,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -32,11 +33,11 @@ class NotificationServiceTest {
         BigDecimal importe = new BigDecimal("123456789012345.67");
         BigDecimal saldo = new BigDecimal("234567890123456.78");
         MovementEvent evento = new MovementEvent(
-                1L, IBAN, 2L, "INGRESO",
+                1L, IBAN, 2L, null, "INGRESO",
                 importe, saldo, null, "REF-1", Instant.now()
         );
 
-        servicio.notifyOwner(evento);
+        servicio.notifyHolders(evento);
 
         Notification aviso = this.avisoGuardado();
         assertThat(aviso.getAmount()).isEqualTo(importe);
@@ -47,12 +48,12 @@ class NotificationServiceTest {
     void copiaTodosLosDatosDelEventoEnElAviso() {
         Instant creado = Instant.parse("2026-11-17T12:00:00Z");
         MovementEvent evento = new MovementEvent(
-                31L, IBAN, 42L, "TRANSFERENCIA_RECIBIDA",
+                31L, IBAN, 42L, null, "TRANSFERENCIA_RECIBIDA",
                 new BigDecimal("25.50"), new BigDecimal("1025.50"),
                 "Nómina", "REF-31", creado
         );
 
-        servicio.notifyOwner(evento);
+        servicio.notifyHolders(evento);
 
         Notification aviso = this.avisoGuardado();
         assertThat(aviso.getUserId()).isEqualTo(42L);
@@ -70,7 +71,7 @@ class NotificationServiceTest {
     void noGuardaUnMovimientoQueYaTieneAviso() {
         when(repositorio.existsByMovementIdAndUserId(7L, 2L)).thenReturn(true);
 
-        servicio.notifyOwner(this.evento(7L));
+        servicio.notifyHolders(this.evento(7L));
 
         verify(repositorio).existsByMovementIdAndUserId(7L, 2L);
         verify(repositorio, never()).saveAndFlush(any());
@@ -81,12 +82,12 @@ class NotificationServiceTest {
     void guardaElMismoMovimientoParaUsuariosDistintos() {
         MovementEvent eventoUsuarioDos = this.evento(13L);
         MovementEvent eventoUsuarioTres = new MovementEvent(
-                13L, IBAN, 3L, "INGRESO",
+                13L, IBAN, 3L, null, "INGRESO",
                 new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-1", Instant.now()
         );
 
-        servicio.notifyOwner(eventoUsuarioDos);
-        servicio.notifyOwner(eventoUsuarioTres);
+        servicio.notifyHolders(eventoUsuarioDos);
+        servicio.notifyHolders(eventoUsuarioTres);
 
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(repositorio, times(2)).saveAndFlush(captor.capture());
@@ -102,8 +103,8 @@ class NotificationServiceTest {
 
     @Test
     void guardaCadaMovimientoDistintoAunqueLleguenSeguidos() {
-        servicio.notifyOwner(this.evento(10L));
-        servicio.notifyOwner(this.evento(11L));
+        servicio.notifyHolders(this.evento(10L));
+        servicio.notifyHolders(this.evento(11L));
 
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(repositorio, times(2)).saveAndFlush(captor.capture());
@@ -118,7 +119,7 @@ class NotificationServiceTest {
         when(repositorio.saveAndFlush(any()))
                 .thenThrow(new DataIntegrityViolationException("movimiento duplicado"));
 
-        assertThatCode(() -> servicio.notifyOwner(this.evento(8L)))
+        assertThatCode(() -> servicio.notifyHolders(this.evento(8L)))
                 .doesNotThrowAnyException();
 
         verify(repositorio, times(1)).saveAndFlush(any());
@@ -126,7 +127,7 @@ class NotificationServiceTest {
 
     @Test
     void guardaConFlushParaEvaluarLaConstraintDentroDelIntento() {
-        servicio.notifyOwner(this.evento(12L));
+        servicio.notifyHolders(this.evento(12L));
 
         verify(repositorio).saveAndFlush(any());
         verify(repositorio, never()).save(any());
@@ -146,6 +147,103 @@ class NotificationServiceTest {
         assertThat(paginacion.getValue().getSort().getOrderFor("id").isDescending()).isTrue();
     }
 
+    @Test
+    void creaUnAvisoPorCadaTitularDelEvento() {
+        MovementEvent evento = new MovementEvent(
+                20L, IBAN, 2L, List.of(2L, 3L, 4L), "INGRESO",
+                new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-20", Instant.now()
+        );
+
+        servicio.notifyHolders(evento);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(repositorio, times(3)).saveAndFlush(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(Notification::getUserId)
+                .containsExactly(2L, 3L, 4L);
+        verify(repositorio).existsByMovementIdAndUserId(20L, 2L);
+        verify(repositorio).existsByMovementIdAndUserId(20L, 3L);
+        verify(repositorio).existsByMovementIdAndUserId(20L, 4L);
+    }
+
+    @Test
+    void eventoSinHolderIdsNotificaSoloAlOwner() {
+        MovementEvent evento = new MovementEvent(
+                21L, IBAN, 2L, null, "INGRESO",
+                new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-21", Instant.now()
+        );
+
+        servicio.notifyHolders(evento);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(repositorio).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getUserId()).isEqualTo(2L);
+        verify(repositorio).existsByMovementIdAndUserId(21L, 2L);
+        verify(repositorio, never()).existsByMovementIdAndUserId(21L, 3L);
+    }
+
+    @Test
+    void noDuplicaLosAvisosDeLosTitulares() {
+        MovementEvent evento = new MovementEvent(
+                22L, IBAN, 2L, List.of(2L, 3L, 3L, 4L), "INGRESO",
+                new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-22", Instant.now()
+        );
+
+        servicio.notifyHolders(evento);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(repositorio, times(3)).saveAndFlush(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(Notification::getUserId)
+                .containsExactly(2L, 3L, 4L);
+    }
+
+    @Test
+    void noDuplicaAvisosSiKafkaReenviaElEventoParaVariosTitulares() {
+        when(repositorio.existsByMovementIdAndUserId(23L, 2L)).thenReturn(true);
+        when(repositorio.existsByMovementIdAndUserId(23L, 3L)).thenReturn(true);
+        MovementEvent evento = new MovementEvent(
+                23L, IBAN, 2L, List.of(2L, 3L), "INGRESO",
+                new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-23", Instant.now()
+        );
+
+        servicio.notifyHolders(evento);
+
+        verify(repositorio).existsByMovementIdAndUserId(23L, 2L);
+        verify(repositorio).existsByMovementIdAndUserId(23L, 3L);
+        verify(repositorio, never()).saveAndFlush(any());
+    }
+
+    @Test
+    void sigueNotificandoAlRestoSiUnTitularYaTieneAviso() {
+        when(repositorio.existsByMovementIdAndUserId(24L, 2L)).thenReturn(true);
+        MovementEvent evento = new MovementEvent(
+                24L, IBAN, 2L, List.of(2L, 3L), "INGRESO",
+                new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-24", Instant.now()
+        );
+
+        servicio.notifyHolders(evento);
+
+        ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
+        verify(repositorio).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getUserId()).isEqualTo(3L);
+    }
+
+    @Test
+    void ignoraElConflictoDeUnTitularYSigueConLosDemas() {
+        when(repositorio.saveAndFlush(any()))
+                .thenThrow(new DataIntegrityViolationException("movimiento duplicado"))
+                .thenAnswer(inv -> inv.getArgument(0));
+        MovementEvent evento = new MovementEvent(
+                25L, IBAN, 2L, List.of(2L, 3L), "INGRESO",
+                new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-25", Instant.now()
+        );
+
+        assertThatCode(() -> servicio.notifyHolders(evento)).doesNotThrowAnyException();
+
+        verify(repositorio, times(2)).saveAndFlush(any());
+    }
+
     private Notification avisoGuardado() {
         ArgumentCaptor<Notification> captor = ArgumentCaptor.forClass(Notification.class);
         verify(repositorio).saveAndFlush(captor.capture());
@@ -154,7 +252,7 @@ class NotificationServiceTest {
 
     private MovementEvent evento(Long movimientoId) {
         return new MovementEvent(
-                movimientoId, IBAN, 2L, "INGRESO",
+                movimientoId, IBAN, 2L, null, "INGRESO",
                 new BigDecimal("100.00"), new BigDecimal("1100.00"), null, "REF-1", Instant.now()
         );
     }

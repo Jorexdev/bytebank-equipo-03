@@ -27,30 +27,37 @@ public class NotificationService {
         return notificationRepository.findByUserId(userId, pageable);
     }
 
-    public void notifyOwner(MovementEvent event) {
-        if (this.movementWasAlreadyNotified(event.movementId(), event.ownerId())) return;
+    public void notifyHolders(MovementEvent event) {
+        for (Long userId : event.recipientIds()) {
+            this.notifyHolder(event, userId);
+        }
+    }
 
-        Notification notification = this.createNotification(event);
+    private void notifyHolder(MovementEvent event, Long userId) {
+        if (this.movementWasAlreadyNotified(event.movementId(), userId)) return;
+
+        Notification notification = this.createNotification(event, userId);
 
         try {
             this.notificationRepository.saveAndFlush(notification);
         } catch (DataIntegrityViolationException ex) {
-            log.info("El movimiento {} ya tiene un aviso (detectado por constraint único); se ignora el evento repetido",
-                    event.movementId());
+            log.info("El movimiento {} ya tiene un aviso para el usuario {} (detectado por constraint único); "
+                    + "se ignora el evento repetido", event.movementId(), userId);
         }
     }
 
     private boolean movementWasAlreadyNotified(Long movementId, Long userId) {
         if (notificationRepository.existsByMovementIdAndUserId(movementId, userId)) {
-            log.info("El movimiento {} ya tiene un aviso; se ignora el evento repetido", movementId);
+            log.info("El movimiento {} ya tiene un aviso para el usuario {}; se ignora el evento repetido",
+                    movementId, userId);
             return true;
         }
         return false;
     }
 
-    private Notification createNotification(MovementEvent event) {
+    private Notification createNotification(MovementEvent event, Long userId) {
         return new Notification(
-                event.ownerId(),
+                userId,
                 event.movementId(),
                 event.iban(),
                 event.type(),
