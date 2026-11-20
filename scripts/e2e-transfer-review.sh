@@ -76,7 +76,7 @@ if not matches:
     raise SystemExit("No se encontró la transferencia E2E en la bandeja")
 item = matches[-1]
 if item["status"] != "PENDIENTE_REVISION":
-    raise SystemExit(f"Estado inesperado: {item['status']}")
+    raise SystemExit("Estado inesperado: " + str(item["status"]))
 print(item["id"])
 ' "$concept")"
 
