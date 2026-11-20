@@ -1,6 +1,7 @@
 package dev.bytebank.transfers.transfer;
 
 import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.web.PageResponse;
@@ -16,6 +17,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.Objects;
@@ -75,11 +77,11 @@ public class TransferService {
             }
         }
         FraudClient.FraudCheckResponse fraudCheckResponse =
-        fraudClient.check(new FraudClient.FraudCheckRequest(origin, destination, user.id(), amount));
+                fraudClient.check(new FraudClient.FraudCheckRequest(origin, destination, user.id(), amount));
 
         if (fraudCheckResponse == null || fraudCheckResponse.verdict() == null) {
             log.info("Transferencia al IBAN {} no realizada. Error ms-fraud", transfer.getDestinationIban());
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE,"SERVICIO_NO_DISPONIBLE",
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SERVICIO_NO_DISPONIBLE",
                     "No se pudo realizar la verificación de fraude para la transferencia.");
         }
         transfer.recordFraudCheckResult(fraudCheckResponse.verdict().name(), fraudCheckResponse.checkId());
@@ -100,25 +102,127 @@ public class TransferService {
 
         transfer = transfers.save(transfer);
         try {
-            accountsClient.debit(transfer.ledgerReference(), origin, amount, request.concept());
+            execute(transfer);
+        } catch (RemoteUnavailableException e) {
+            // create conserva su comportamiento previo: sin conexión con ms-accounts se marca RECHAZADA.
+            // La revisión por gestor (approve) sí deja la transferencia en PENDIENTE_REVISION.
+            transfer.reject(e.getCode());
+            log.info("Transferencia {} rechazada: {}", transfer.getId(), e.getCode());
+        }
+        return transfers.save(transfer);
+    }
+
+    private void execute(Transfer transfer) {
+        try {
+            accountsClient.debit(transfer.ledgerReference(), transfer.getOriginIban(), transfer.getAmount(),
+                    transfer.getConcept());
+        } catch (RemoteUnavailableException e) {
+            // ms-accounts no respondió antes de debitar: no se ha movido dinero. Quien llama decide
+            // si la transferencia queda rechazada (create) o vuelve a PENDIENTE_REVISION por rollback (approve).
+            throw e;
         } catch (ApiException e) {
             transfer.reject(e.getCode());
             log.info("Transferencia {} rechazada: {}", transfer.getId(), e.getCode());
-            return transfers.save(transfer);
+            return;
         }
 
-        if (Iban.isOwnBank(destination)) {
+        if (Iban.isOwnBank(transfer.getDestinationIban())) {
             try {
-                accountsClient.credit(transfer.ledgerReference(), destination, amount, request.concept());
+                accountsClient.credit(transfer.ledgerReference(), transfer.getDestinationIban(),
+                        transfer.getAmount(), transfer.getConcept());
             } catch (ApiException e) {
-                log.warn("No se pudo abonar la transferencia {} en {}: {}", transfer.getId(), destination, e.getCode());
-                compensate(transfer, origin, amount, e.getCode());
-                return transfers.save(transfer);
+                log.warn("No se pudo abonar la transferencia {} en {}: {}",
+                        transfer.getId(), transfer.getDestinationIban(), e.getCode());
+                compensate(transfer, transfer.getOriginIban(), transfer.getAmount(), e.getCode());
+                return;
             }
         }
+
         transfer.complete();
         log.info("Transferencia {} completada", transfer.getId());
+    }
+
+    @Transactional
+    public Transfer approve(Long id, AuthUser reviewer) {
+        requireGestor(reviewer);
+        Transfer transfer = findPendingForUpdate(id);
+        // execute puede lanzar RemoteUnavailableException si ms-accounts no responde antes de debitar:
+        // al no registrar la revisión ni guardar, el rollback deja la fila en PENDIENTE_REVISION.
+        if (!rejectIfDestinationIsNotOperational(transfer)) {
+            execute(transfer);
+        }
+        transfer.recordReview(reviewer.id());
+        log.info("Transferencia {} revisada por el gestor {}: {}", id, reviewer.id(), transfer.getStatus());
         return transfers.save(transfer);
+    }
+
+    @Transactional
+    public Transfer reject(Long id, String reason, AuthUser reviewer) {
+        requireGestor(reviewer);
+        String note = reason == null ? "" : reason.trim();
+        if (note.isEmpty()) {
+            throw ApiException.badRequest("DATOS_NO_VALIDOS", "El motivo de rechazo es obligatorio");
+        }
+        if (note.length() > 255) {
+            throw ApiException.badRequest("DATOS_NO_VALIDOS", "El motivo no puede superar 255 caracteres");
+        }
+        Transfer transfer = findPendingForUpdate(id);
+        transfer.rejectByReviewer(reviewer.id(), note);
+        log.info("Transferencia {} rechazada por el gestor {}", id, reviewer.id());
+        return transfers.save(transfer);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<TransferResponse> listPending(int page, int size) {
+        Page<Transfer> pending = transfers.findByStatus(TransferStatus.PENDIENTE_REVISION,
+                PageRequest.of(page, size, NEWEST_FIRST));
+        return PageResponse.of(pending, TransferResponse::from);
+    }
+
+    private static void requireGestor(AuthUser reviewer) {
+        if (reviewer == null || reviewer.id() == null) {
+            throw ApiException.unauthorized("Hace falta un token válido");
+        }
+        if (!reviewer.isGestor()) {
+            throw ApiException.forbidden("Solo un gestor puede revisar transferencias");
+        }
+    }
+
+    /**
+     * Comprueba el destino antes de debitar. Devuelve true si la transferencia ya quedó RECHAZADA.
+     * Si ms-accounts no responde, relanza el 503 para que el rollback la deje en PENDIENTE_REVISION.
+     * Solo aplica a destinos de ByteBank; los externos no tienen cuenta que consultar.
+     */
+    private boolean rejectIfDestinationIsNotOperational(Transfer transfer) {
+        if (!Iban.isOwnBank(transfer.getDestinationIban())) {
+            return false;
+        }
+        try {
+            AccountsClient.AccountInfo destination = accountsClient.getAccount(transfer.getDestinationIban());
+            if (destination == null || !destination.isActive()) {
+                transfer.reject("CUENTA_NO_OPERATIVA");
+                log.info("Transferencia {} rechazada antes de debitar: destino CUENTA_NO_OPERATIVA", transfer.getId());
+                return true;
+            }
+            return false;
+        } catch (RemoteUnavailableException e) {
+            throw e;
+        } catch (ApiException e) {
+            transfer.reject(e.getCode());
+            log.info("Transferencia {} rechazada antes de debitar: destino {}", transfer.getId(), e.getCode());
+            return true;
+        }
+    }
+
+    private Transfer findPendingForUpdate(Long id) {
+        Transfer transfer = transfers.findByIdForUpdate(id)
+                .orElseThrow(() -> ApiException.notFound("TRANSFERENCIA_NO_ENCONTRADA",
+                        "No existe la transferencia " + id));
+        if (!transfer.isPendingReview()) {
+            throw ApiException.conflict("TRANSFERENCIA_NO_PENDIENTE",
+                    "La transferencia " + id + " ya no está pendiente de revisión");
+        }
+        return transfer;
     }
 
     private void compensate(Transfer transfer, String origin, BigDecimal amount, String rejectionReason) {
