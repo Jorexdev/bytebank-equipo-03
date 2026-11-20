@@ -40,6 +40,7 @@ class TransferReviewServiceTest {
 
     static final String ORIGIN = Iban.generate(1);
     static final String DESTINATION = Iban.generate(2);
+    static final String EXTERNAL_DESTINATION = "ES9121000418450200051332";
     static final BigDecimal THRESHOLD = new BigDecimal("5000");
     static final AuthUser GESTOR = new AuthUser(99L, "gestor@bytebank.test", Role.GESTOR);
     static final AuthUser ANA = new AuthUser(2L, "ana@bytebank.test", Role.CLIENTE);
@@ -57,6 +58,8 @@ class TransferReviewServiceTest {
     void setUp() {
         service = new TransferService(transfers, accounts, fraud, THRESHOLD);
         lenient().when(transfers.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountsClient.AccountInfo(DESTINATION, "ACTIVA", BigDecimal.ZERO, 3L, null));
     }
 
     private Transfer pending(String amount) {
@@ -175,6 +178,70 @@ class TransferReviewServiceTest {
     }
 
     @Test
+    void approvalRejectsWhenDestinationIsNotOperationalWithoutDebiting() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+        when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountsClient.AccountInfo(DESTINATION, "BLOQUEADA", BigDecimal.ZERO, 3L, null));
+
+        Transfer result = service.approve(1L, GESTOR);
+
+        assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(result.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        assertThat(result.getReviewedBy()).isEqualTo(GESTOR.id());
+        assertThat(result.getReviewedAt()).isNotNull();
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).refund(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void approvalRejectsWhenDestinationLookupFails() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+        when(accounts.getAccount(DESTINATION))
+                .thenThrow(new ApiException(HttpStatus.NOT_FOUND, "CUENTA_NO_ENCONTRADA", "No existe la cuenta"));
+
+        Transfer result = service.approve(1L, GESTOR);
+
+        assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(result.getRejectionReason()).isEqualTo("CUENTA_NO_ENCONTRADA");
+        assertThat(result.getReviewedBy()).isEqualTo(GESTOR.id());
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void approvalKeepsTransferPendingWhenDestinationLookupIsUnavailable() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+        when(accounts.getAccount(DESTINATION))
+                .thenThrow(new RemoteUnavailableException("ms-accounts no responde"));
+
+        assertThatThrownBy(() -> service.approve(1L, GESTOR))
+                .isInstanceOf(RemoteUnavailableException.class);
+
+        assertThat(transfer.getStatus()).isEqualTo(TransferStatus.PENDIENTE_REVISION);
+        assertThat(transfer.getRejectionReason()).isNull();
+        assertThat(transfer.getReviewedBy()).isNull();
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(transfers, never()).save(any());
+    }
+
+    @Test
+    void approvalOfExternalTransferOnlyDebits() {
+        Transfer transfer = new Transfer(ORIGIN, EXTERNAL_DESTINATION, new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.pendingReview("TRANSFERENCIA_SUPERA_UMBRAL");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+
+        Transfer result = service.approve(1L, GESTOR);
+
+        assertThat(result.getStatus()).isEqualTo(TransferStatus.COMPLETADA);
+        verify(accounts).debit(anyString(), eq(ORIGIN), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).getAccount(EXTERNAL_DESTINATION);
+    }
+
+    @Test
     void cannotApproveTransferThatIsNotPending() {
         Transfer transfer = new Transfer(ORIGIN, DESTINATION, new BigDecimal("100.00"), null, 2L);
         when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
@@ -232,6 +299,56 @@ class TransferReviewServiceTest {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
                     assertThat(e.getCode()).isEqualTo("TRANSFERENCIA_NO_ENCONTRADA");
                 });
+    }
+
+    @Test
+    void approveRequiresAuthenticatedGestor() {
+        assertThatThrownBy(() -> service.approve(1L, null))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(e.getCode()).isEqualTo("NO_AUTENTICADO");
+                });
+        verify(transfers, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    void approveRejectsReviewerWithoutId() {
+        assertThatThrownBy(() -> service.approve(1L, new AuthUser(null, "gestor@bytebank.test", Role.GESTOR)))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(e.getCode()).isEqualTo("NO_AUTENTICADO");
+                });
+        verify(transfers, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    void approveRejectsClient() {
+        assertThatThrownBy(() -> service.approve(1L, ANA))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+                    assertThat(e.getCode()).isEqualTo("ACCESO_DENEGADO");
+                });
+        verify(transfers, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    void rejectRequiresAuthenticatedGestor() {
+        assertThatThrownBy(() -> service.reject(1L, "motivo", null))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
+                    assertThat(e.getCode()).isEqualTo("NO_AUTENTICADO");
+                });
+        verify(transfers, never()).findByIdForUpdate(any());
+    }
+
+    @Test
+    void rejectRejectsClient() {
+        assertThatThrownBy(() -> service.reject(1L, "motivo", ANA))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
+                    assertThat(e.getCode()).isEqualTo("ACCESO_DENEGADO");
+                });
+        verify(transfers, never()).findByIdForUpdate(any());
     }
 
     @Test

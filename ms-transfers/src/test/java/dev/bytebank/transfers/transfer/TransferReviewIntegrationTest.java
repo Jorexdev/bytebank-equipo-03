@@ -7,6 +7,7 @@ import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
 import dev.bytebank.transfers.client.AccountsClient;
 import dev.bytebank.transfers.client.FraudClient;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,6 +20,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -30,7 +33,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -60,6 +65,12 @@ class TransferReviewIntegrationTest {
     TransferRepository transfers;
     @Autowired
     PlatformTransactionManager txManager;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountsClient.AccountInfo(DESTINATION, "ACTIVA", BigDecimal.ZERO, 3L, null));
+    }
 
     private Transfer pending(String amount) {
         Transfer transfer = new Transfer(ORIGIN, DESTINATION, new BigDecimal(amount), "Alquiler", 2L);
@@ -95,6 +106,55 @@ class TransferReviewIntegrationTest {
         assertThat(reloaded.getReviewedBy()).isNull();
         assertThat(reloaded.getReviewedAt()).isNull();
         verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void approveRejectsWhenDestinationWasBlockedWhilePending() {
+        Transfer transfer = pending("6000.00");
+        when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountsClient.AccountInfo(DESTINATION, "BLOQUEADA", BigDecimal.ZERO, 3L, null));
+
+        Transfer rejected = service.approve(transfer.getId(), GESTOR);
+
+        assertThat(rejected.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(rejected.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        assertThat(rejected.getReviewedBy()).isEqualTo(GESTOR.id());
+        assertThat(rejected.getReviewedAt()).isNotNull();
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).refund(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void onlyOneConcurrentApprovalExecutesTheMovement() throws Exception {
+        Transfer transfer = pending("6000.00");
+        Long id = transfer.getId();
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Callable<String> attempt = () -> {
+                ready.countDown();
+                start.await(5, TimeUnit.SECONDS);
+                try {
+                    return service.approve(id, GESTOR).getStatus().name();
+                } catch (ApiException e) {
+                    return e.getCode();
+                }
+            };
+            Future<String> first = pool.submit(attempt);
+            Future<String> second = pool.submit(attempt);
+
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            assertThat(List.of(first.get(15, TimeUnit.SECONDS), second.get(15, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder("COMPLETADA", "TRANSFERENCIA_NO_PENDIENTE");
+            verify(accounts, times(1)).debit(anyString(), anyString(), any(), any());
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test

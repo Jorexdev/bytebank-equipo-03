@@ -144,10 +144,13 @@ public class TransferService {
 
     @Transactional
     public Transfer approve(Long id, AuthUser reviewer) {
+        requireGestor(reviewer);
         Transfer transfer = findPendingForUpdate(id);
         // execute puede lanzar RemoteUnavailableException si ms-accounts no responde antes de debitar:
         // al no registrar la revisión ni guardar, el rollback deja la fila en PENDIENTE_REVISION.
-        execute(transfer);
+        if (!rejectIfDestinationIsNotOperational(transfer)) {
+            execute(transfer);
+        }
         transfer.recordReview(reviewer.id());
         log.info("Transferencia {} revisada por el gestor {}: {}", id, reviewer.id(), transfer.getStatus());
         return transfers.save(transfer);
@@ -155,6 +158,7 @@ public class TransferService {
 
     @Transactional
     public Transfer reject(Long id, String reason, AuthUser reviewer) {
+        requireGestor(reviewer);
         String note = reason == null ? "" : reason.trim();
         if (note.isEmpty()) {
             throw ApiException.badRequest("DATOS_NO_VALIDOS", "El motivo de rechazo es obligatorio");
@@ -173,6 +177,41 @@ public class TransferService {
         Page<Transfer> pending = transfers.findByStatus(TransferStatus.PENDIENTE_REVISION,
                 PageRequest.of(page, size, NEWEST_FIRST));
         return PageResponse.of(pending, TransferResponse::from);
+    }
+
+    private static void requireGestor(AuthUser reviewer) {
+        if (reviewer == null || reviewer.id() == null) {
+            throw ApiException.unauthorized("Hace falta un token válido");
+        }
+        if (!reviewer.isGestor()) {
+            throw ApiException.forbidden("Solo un gestor puede revisar transferencias");
+        }
+    }
+
+    /**
+     * Comprueba el destino antes de debitar. Devuelve true si la transferencia ya quedó RECHAZADA.
+     * Si ms-accounts no responde, relanza el 503 para que el rollback la deje en PENDIENTE_REVISION.
+     * Solo aplica a destinos de ByteBank; los externos no tienen cuenta que consultar.
+     */
+    private boolean rejectIfDestinationIsNotOperational(Transfer transfer) {
+        if (!Iban.isOwnBank(transfer.getDestinationIban())) {
+            return false;
+        }
+        try {
+            AccountsClient.AccountInfo destination = accountsClient.getAccount(transfer.getDestinationIban());
+            if (destination == null || !destination.isActive()) {
+                transfer.reject("CUENTA_NO_OPERATIVA");
+                log.info("Transferencia {} rechazada antes de debitar: destino CUENTA_NO_OPERATIVA", transfer.getId());
+                return true;
+            }
+            return false;
+        } catch (RemoteUnavailableException e) {
+            throw e;
+        } catch (ApiException e) {
+            transfer.reject(e.getCode());
+            log.info("Transferencia {} rechazada antes de debitar: destino {}", transfer.getId(), e.getCode());
+            return true;
+        }
     }
 
     private Transfer findPendingForUpdate(Long id) {
