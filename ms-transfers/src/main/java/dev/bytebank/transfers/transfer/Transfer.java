@@ -50,6 +50,12 @@ public class Transfer {
     private String fraudVerdict;
     @Column(name = "fraud_check_id")
     private Long fraudCheckId;
+    @Column(name = "reviewed_by")
+    private Long reviewedBy;
+    @Column(name = "reviewed_at")
+    private Instant reviewedAt;
+    @Column(name = "review_note", length = 255)
+    private String reviewNote;
 
     protected Transfer() {
     }
@@ -81,6 +87,19 @@ public class Transfer {
     public void pendingReview(String reason) {
         this.status = TransferStatus.PENDIENTE_REVISION;
         this.reviewReason = reason;
+    }
+    public boolean isPendingReview() {
+        return status == TransferStatus.PENDIENTE_REVISION;
+    }
+    public void recordReview(Long reviewer) {
+        this.reviewedBy = reviewer;
+        this.reviewedAt = Instant.now();
+    }
+     public void rejectByReviewer(Long reviewer, String reason) {
+        this.status = TransferStatus.RECHAZADA;
+        this.rejectionReason = "RECHAZADA_POR_GESTOR";
+        this.reviewNote = reason;
+        recordReview(reviewer);
     }
     public void recordFraudCheckResult(String verdict, Long checkId) {
         this.fraudVerdict = verdict;
@@ -133,5 +152,17 @@ public class Transfer {
 
     public Long getFraudCheckId() {
         return fraudCheckId;
+    }
+
+    public Long getReviewedBy() {
+        return reviewedBy;
+    }
+
+    public Instant getReviewedAt() {
+        return reviewedAt;
+    }
+
+    public String getReviewNote() {
+        return reviewNote;
     }
 }
