@@ -1,6 +1,7 @@
 package dev.bytebank.transfers.transfer;
 
 import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.web.PageResponse;
@@ -100,7 +101,14 @@ public class TransferService {
         }
 
         transfer = transfers.save(transfer);
-        execute(transfer);
+        try {
+            execute(transfer);
+        } catch (RemoteUnavailableException e) {
+            // create conserva su comportamiento previo: sin conexión con ms-accounts se marca RECHAZADA.
+            // La revisión por gestor (approve) sí deja la transferencia en PENDIENTE_REVISION.
+            transfer.reject(e.getCode());
+            log.info("Transferencia {} rechazada: {}", transfer.getId(), e.getCode());
+        }
         return transfers.save(transfer);
     }
 
@@ -108,6 +116,10 @@ public class TransferService {
         try {
             accountsClient.debit(transfer.ledgerReference(), transfer.getOriginIban(), transfer.getAmount(),
                     transfer.getConcept());
+        } catch (RemoteUnavailableException e) {
+            // ms-accounts no respondió antes de debitar: no se ha movido dinero. Quien llama decide
+            // si la transferencia queda rechazada (create) o vuelve a PENDIENTE_REVISION por rollback (approve).
+            throw e;
         } catch (ApiException e) {
             transfer.reject(e.getCode());
             log.info("Transferencia {} rechazada: {}", transfer.getId(), e.getCode());
@@ -133,8 +145,10 @@ public class TransferService {
     @Transactional
     public Transfer approve(Long id, AuthUser reviewer) {
         Transfer transfer = findPendingForUpdate(id);
-        transfer.recordReview(reviewer.id());
+        // execute puede lanzar RemoteUnavailableException si ms-accounts no responde antes de debitar:
+        // al no registrar la revisión ni guardar, el rollback deja la fila en PENDIENTE_REVISION.
         execute(transfer);
+        transfer.recordReview(reviewer.id());
         log.info("Transferencia {} revisada por el gestor {}: {}", id, reviewer.id(), transfer.getStatus());
         return transfers.save(transfer);
     }

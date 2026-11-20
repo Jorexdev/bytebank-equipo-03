@@ -1,12 +1,14 @@
 package dev.bytebank.transfers.transfer;
 
 import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
 import dev.bytebank.common.web.PageResponse;
 import dev.bytebank.transfers.client.AccountsClient;
 import dev.bytebank.transfers.client.FraudClient;
+import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
 import dev.bytebank.transfers.transfer.TransferDtos.TransferResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,6 +42,7 @@ class TransferReviewServiceTest {
     static final String DESTINATION = Iban.generate(2);
     static final BigDecimal THRESHOLD = new BigDecimal("5000");
     static final AuthUser GESTOR = new AuthUser(99L, "gestor@bytebank.test", Role.GESTOR);
+    static final AuthUser ANA = new AuthUser(2L, "ana@bytebank.test", Role.CLIENTE);
 
     @Mock
     TransferRepository transfers;
@@ -86,6 +90,73 @@ class TransferReviewServiceTest {
 
         assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
         assertThat(result.getRejectionReason()).isEqualTo("FONDOS_INSUFICIENTES");
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void approvalKeepsTransferPendingWhenAccountsIsUnavailableBeforeDebit() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+        when(accounts.debit(anyString(), anyString(), any(), any()))
+                .thenThrow(new RemoteUnavailableException("ms-accounts no responde"));
+
+        assertThatThrownBy(() -> service.approve(1L, GESTOR))
+                .isInstanceOfSatisfying(RemoteUnavailableException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+                    assertThat(e.getCode()).isEqualTo("SERVICIO_NO_DISPONIBLE");
+                });
+
+        assertThat(transfer.getStatus()).isEqualTo(TransferStatus.PENDIENTE_REVISION);
+        assertThat(transfer.getRejectionReason()).isNull();
+        assertThat(transfer.getReviewedBy()).isNull();
+        assertThat(transfer.getReviewedAt()).isNull();
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).refund(anyString(), anyString(), any(), any());
+        verify(transfers, never()).save(any());
+    }
+
+    @Test
+    void approvalMarksTransferRejectedWhenOriginAccountIsNotOperational() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+        when(accounts.debit(anyString(), anyString(), any(), any()))
+                .thenThrow(new ApiException(HttpStatus.CONFLICT, "CUENTA_NO_OPERATIVA", "La cuenta no está activa"));
+
+        Transfer result = service.approve(1L, GESTOR);
+
+        assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(result.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        assertThat(result.getReviewedBy()).isEqualTo(GESTOR.id());
+        assertThat(result.getReviewedAt()).isNotNull();
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void approvalDoesNotCallFraudAgain() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+
+        service.approve(1L, GESTOR);
+
+        verifyNoInteractions(fraud);
+    }
+
+    @Test
+    void createKeepsRejectingWhenAccountsIsUnavailableBeforeDebit() {
+        when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountsClient.AccountInfo(ORIGIN, "ACTIVA", new BigDecimal("1000"), ANA.id(), null));
+        when(accounts.getAccount(DESTINATION))
+                .thenReturn(new AccountsClient.AccountInfo(DESTINATION, "ACTIVA", BigDecimal.ZERO, 3L, null));
+        when(fraud.check(any()))
+                .thenReturn(new FraudClient.FraudCheckResponse(1L, FraudClient.Verdict.APROBADA, List.of()));
+        when(accounts.debit(anyString(), anyString(), any(), any()))
+                .thenThrow(new RemoteUnavailableException("ms-accounts no responde"));
+
+        Transfer result = service.create(
+                new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("100.00"), null), ANA);
+
+        assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(result.getRejectionReason()).isEqualTo("SERVICIO_NO_DISPONIBLE");
         verify(accounts, never()).credit(anyString(), anyString(), any(), any());
     }
 

@@ -1,6 +1,7 @@
 package dev.bytebank.transfers.transfer;
 
 import dev.bytebank.common.error.ApiException;
+import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
 import dev.bytebank.common.security.Role;
@@ -29,7 +30,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest(properties = {
         "bytebank.jwt.secret=secreto-de-test-con-al-menos-32-caracteres",
@@ -75,6 +78,23 @@ class TransferReviewIntegrationTest {
         assertThat(approved.getReviewedAt()).isNotNull();
         verify(accounts).debit(anyString(), anyString(), any(), any());
         verify(accounts).credit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void approveRollsBackToPendingReviewWhenAccountsIsUnavailableBeforeDebit() {
+        Transfer transfer = pending("6000.00");
+        when(accounts.debit(anyString(), anyString(), any(), any()))
+                .thenThrow(new RemoteUnavailableException("ms-accounts no responde"));
+
+        assertThatThrownBy(() -> service.approve(transfer.getId(), GESTOR))
+                .isInstanceOf(RemoteUnavailableException.class);
+
+        Transfer reloaded = transfers.findById(transfer.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(TransferStatus.PENDIENTE_REVISION);
+        assertThat(reloaded.getRejectionReason()).isNull();
+        assertThat(reloaded.getReviewedBy()).isNull();
+        assertThat(reloaded.getReviewedAt()).isNull();
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
     }
 
     @Test
