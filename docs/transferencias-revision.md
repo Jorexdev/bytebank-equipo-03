@@ -94,6 +94,7 @@ Content-Type: application/json
 | 403 | `ACCESO_DENEGADO` | El usuario no tiene rol `GESTOR` |
 | 404 | `TRANSFERENCIA_NO_ENCONTRADA` | No existe la transferencia |
 | 409 | `TRANSFERENCIA_NO_PENDIENTE` | Ya fue revisada |
+| 503 | `SERVICIO_NO_DISPONIBLE` | `ms-accounts` no responde antes de debitar (la transferencia permanece en `PENDIENTE_REVISION` para reintentar) |
 
 ## Prueba E2E con Docker Compose
 

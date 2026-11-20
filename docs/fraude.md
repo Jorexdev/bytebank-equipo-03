@@ -59,8 +59,8 @@ Además:
 
 ## Pendiente
 
-- Endpoints de gestor para listar/aprobar/rechazar las transferencias en `PENDIENTE_REVISION`
-  (otro ticket).
+- Los endpoints de gestor para listar/aprobar/rechazar las transferencias en
+  `PENDIENTE_REVISION` están documentados en `docs/transferencias-revision.md`.
 - Los motivos de fraude (`reasons`) van al log pero no se persisten; en `REVISAR` se guarda un
   motivo genérico (`TRANSFERENCIA_EN_REVISION`). Falta decidir si se guardan y si también se
   persisten en `BLOQUEADA`.
