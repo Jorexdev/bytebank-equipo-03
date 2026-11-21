@@ -20,6 +20,7 @@ public class MovementService {
     private static final LocalDate MAX_DATE = LocalDate.of(2999, 12, 31);
     private static final Instant MIN = Instant.parse("1970-01-01T00:00:00Z");
     private static final Instant MAX = Instant.parse("3000-01-01T00:00:00Z");
+    private static final int MAX_PAGE = 10_000;
     private static final int MAX_PAGE_SIZE = 100;
     private static final String DEFAULT_ZONE = "Europe/Madrid";
 
@@ -62,9 +63,10 @@ public class MovementService {
     }
 
     private static void validateRequest(LocalDate from, LocalDate to, int page, int size) {
-        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+        if (page < 0 || page > MAX_PAGE || size < 1 || size > MAX_PAGE_SIZE) {
             throw ApiException.badRequest("DATOS_NO_VALIDOS",
-                    "Paginación no válida: page debe ser >= 0 y size entre 1 y " + MAX_PAGE_SIZE);
+                    "Paginación no válida: page debe estar entre 0 y " + MAX_PAGE
+                            + " y size entre 1 y " + MAX_PAGE_SIZE);
         }
         if (isOutOfRange(from) || isOutOfRange(to)) {
             throw ApiException.badRequest("RANGO_FECHAS_INVALIDO",

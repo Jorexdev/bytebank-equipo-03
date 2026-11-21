@@ -145,6 +145,13 @@ class MovementServiceIntegrationTest extends IntegrationTest {
 
         mockMvc.perform(get("/api/accounts/" + account.getIban() + "/movements")
                         .header("Authorization", "Bearer " + ownerToken)
+                        .param("page", "10001")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+
+        mockMvc.perform(get("/api/accounts/" + account.getIban() + "/movements")
+                        .header("Authorization", "Bearer " + ownerToken)
                         .param("size", "0")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())

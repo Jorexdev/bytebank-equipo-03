@@ -134,6 +134,8 @@ class MovementServiceTest {
 
         assertThatThrownBy(() -> service.statement(account, null, null, -1, 20))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
+        assertThatThrownBy(() -> service.statement(account, null, null, 10_001, 20))
+                .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
         assertThatThrownBy(() -> service.statement(account, null, null, 0, 0))
                 .isInstanceOfSatisfying(ApiException.class, e -> assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST));
         assertThatThrownBy(() -> service.statement(account, null, null, 0, 101))
