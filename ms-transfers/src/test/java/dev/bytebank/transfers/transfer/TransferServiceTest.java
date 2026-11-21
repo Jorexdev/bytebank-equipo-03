@@ -35,6 +35,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -386,6 +387,23 @@ class TransferServiceTest {
         assertThat(t.getFraudVerdict()).isEqualTo("REVISAR");
         assertThat(t.getFraudCheckId()).isEqualTo(8L);
         assertThat(t.getReviewReason()).isEqualTo("TRANSFERENCIA_EN_REVISION");
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void rejectsBeforeFraudAndPendingReviewWhenOriginIsBlocked() {
+        when(accounts.getAccount(ORIGIN))
+                .thenReturn(new AccountInfo(ORIGIN, "BLOQUEADA", new BigDecimal("10000"), ANA.id(), null));
+
+        Transfer small = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("50.00"), null), ANA);
+        Transfer large = service.create(new CreateTransferRequest(ORIGIN, DESTINATION, new BigDecimal("6000.00"), null), ANA);
+
+        assertThat(small.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(small.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        assertThat(large.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(large.getRejectionReason()).isEqualTo("CUENTA_NO_OPERATIVA");
+        verifyNoInteractions(fraud);
+        verify(accounts, never()).getAccount(DESTINATION);
         verify(accounts, never()).debit(anyString(), anyString(), any(), any());
     }
 }

@@ -62,6 +62,12 @@ public class TransferService {
 
         Transfer transfer = new Transfer(origin, destination, amount, request.concept(), user.id());
 
+        if (!originAccount.isActive()) {
+            transfer.reject("CUENTA_NO_OPERATIVA");
+            log.info("Transferencia rechazada: cuenta origen CUENTA_NO_OPERATIVA");
+            return transfers.save(transfer);
+        }
+
         if (Iban.isOwnBank(destination)) {
             try {
                 AccountsClient.AccountInfo destinationAccount = accountsClient.getAccount(destination);
