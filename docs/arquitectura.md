@@ -1,23 +1,29 @@
 # Arquitectura
 
 ```
-                         +-------------+
-   cliente  ---------->  | ms-gateway  |  :8080   (solo /api/**)
-                         +------+------+
-                                |
-      +-----------+-------------+-------------+-------------+
-      |           |             |             |             |
- +----v----+ +----v------+ +----v-------+ +---v------+ +----v-----+
- | ms-auth | |ms-accounts| |ms-transfers| | ms-cards | | ms-fraud |
- |  :8081  | |   :8082   | |   :8083    | |  :8084   | |  :8085   |
- +---------+ +-----^-----+ +-----+------+ +----+-----+ +----------+
-                   |             |             |
-                   +-------------+-------------+
-                     llamadas internas /internal/**
+                                   +-------------+
+          cliente / gestor ------> | ms-gateway  | :8080 (solo /api/**)
+                                   +------+------+
+                                          |
+    +-----------+------------+------------+------------+------------+------------+
+    |           |            |            |            |            |            |
++---v---+ +-----v-----+ +----v-------+ +--v-----+ +----v----+ +-----v----------+
+|ms-auth| |ms-accounts| |ms-transfers| |ms-cards| |ms-fraud | |ms-notifications|
+| :8081 | |   :8082   | |   :8083    | | :8084  | |  :8085  | |     :8086      |
++---^---+ +---^---+---+ +-----+------+ +---+----+ +----^----+ +-------^--------+
+    |         |   |           |            |           |              |
+    +---------+   |           +------------+-----------+              |
+    llamadas      |             llamadas internas /internal/**        |
+    internas      +----------------- Apache Kafka --------------------+
+                               (topic bytebank.movements)
 ```
 
-Cada servicio tiene su propia base de datos (`auth_db`, `accounts_db`, `transfers_db`, `cards_db`, `fraud_db`),
-todas en la misma instancia de PostgreSQL. Ningún servicio lee la base de datos de otro.
+Cada servicio tiene su propia base de datos (`auth_db`, `accounts_db`, `transfers_db`, `cards_db`, `fraud_db`, `notifications_db`),
+todas en la misma instancia de PostgreSQL 15. Ningún servicio lee la base de datos de otro.
+
+`ms-accounts` publica eventos de movimientos en el topic `bytebank.movements` de Apache Kafka (modo KRaft) tras confirmar la
+transacción en base de datos (`afterCommit`), y `ms-notifications` los consume de forma idempotente por `(user_id, movement_id)`
+para avisar a todos los titulares de la cuenta.
 
 ## Seguridad
 
@@ -55,10 +61,13 @@ Todos los servicios devuelven los errores así:
 ## Flujo de una transferencia
 
 1. El cliente hace `POST /api/transfers` con origen, destino, importe y concepto.
-2. ms-transfers comprueba los datos y registra la transferencia.
-3. Carga el importe en la cuenta de origen (`POST /internal/accounts/debit` en ms-accounts).
-4. Si el destino es de ByteBank, lo abona en la cuenta de destino (`POST /internal/accounts/credit`).
-5. La transferencia queda `COMPLETADA` o `RECHAZADA` con el código del error.
+2. `ms-transfers` valida los datos, comprueba que el usuario es titular o co-titular de la cuenta origen y, si el destino es de ByteBank, prevalida que la cuenta destino exista y esté activa.
+3. Consulta a `ms-fraud` (`POST /internal/fraud/check`, política fail-closed `503` si no responde):
+   - Si el veredicto es `BLOQUEADA`, la transferencia queda `RECHAZADA` (`FRAUDE_DETECTADO`) sin mover dinero.
+   - Si el veredicto es `REVISAR` o el importe supera el umbral de 5.000 € (`TRANSFERENCIA_SUPERA_UMBRAL`), queda `PENDIENTE_REVISION` sin mover dinero hasta que un `GESTOR` la apruebe o rechace (`docs/transferencias-revision.md`).
+4. Si se ejecuta directamente (o cuando un `GESTOR` la aprueba bajo bloqueo pesimista `FOR UPDATE`), carga el importe en origen (`POST /internal/accounts/debit`).
+5. Si el destino es de ByteBank, abona en destino (`POST /internal/accounts/credit`). Si el abono falla tras el cargo, ejecuta un reembolso compensatorio en origen (`TRF-<id>-REV`, o marca `REVERSION_FALLIDA` si la compensación también falla).
+6. La transferencia queda `COMPLETADA` o `RECHAZADA` con el código del error.
 
 Las transferencias a otras entidades solo cargan en origen: la liquidación con el otro banco queda fuera de este sistema.
 
@@ -66,5 +75,5 @@ Las transferencias a otras entidades solo cargan en origen: la liquidación con 
 
 | Rol | Puede |
 |---|---|
-| CLIENTE | Abrir cuentas, ver las suyas, hacer transferencias desde ellas, gestionar sus tarjetas |
-| GESTOR | Todo lo de consulta, bloquear y desbloquear cuentas, hacer ingresos en ventanilla, ver las validaciones antifraude |
+| CLIENTE | Abrir cuentas, añadir co-titulares (hasta 4), consultar sus cuentas/extractos/avisos, hacer transferencias desde cuentas donde es titular y emitir/bloquear/pagar con sus tarjetas |
+| GESTOR | Consultar cuentas/extractos/transferencias/avisos, bloquear y desbloquear cuentas, hacer ingresos en ventanilla, consultar validaciones antifraude y listar/aprobar/rechazar transferencias en `PENDIENTE_REVISION` |
