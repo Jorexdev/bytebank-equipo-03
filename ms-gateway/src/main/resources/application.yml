@@ -7,6 +7,11 @@ spring:
   cloud:
     gateway:
       # Solo se exponen las rutas /api/**. Las /internal/** quedan fuera a propósito: no tienen ruta.
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 15s
+      default-filters:
+        - RemoveRequestHeader=X-Internal-Key
       routes:
         - id: auth
           uri: ${AUTH_URL:http://localhost:8081}

@@ -10,11 +10,13 @@ import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.security.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.util.Locale;
 
 @Service
@@ -39,10 +41,26 @@ public class AuthService {
         if (users.existsByEmailIgnoreCase(email)) {
             throw ApiException.conflict("EMAIL_YA_REGISTRADO", "Ya existe un usuario con ese email");
         }
-        User user = users.save(new User(email, passwordEncoder.encode(request.password()),
-                request.fullName().trim(), Role.CLIENTE));
-        log.info("Usuario registrado id={}", user.getId());
-        return UserResponse.from(user);
+        try {
+            User user = users.saveAndFlush(new User(email, passwordEncoder.encode(request.password()),
+                    request.fullName().trim(), Role.CLIENTE));
+            log.info("Usuario registrado id={}", user.getId());
+            return UserResponse.from(user);
+        } catch (DataIntegrityViolationException e) {
+            if (isDuplicateEmailViolation(e)) {
+                throw ApiException.conflict("EMAIL_YA_REGISTRADO", "Ya existe un usuario con ese email");
+            }
+            throw e;
+        }
+    }
+
+    private static boolean isDuplicateEmailViolation(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sqlEx && "23505".equals(sqlEx.getSQLState())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Transactional(readOnly = true)

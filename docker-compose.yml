@@ -64,7 +64,13 @@ services:
   ms-gateway:
     build: { context: ., args: { MODULE: ms-gateway } }
     restart: unless-stopped
-    environment: *common-env
+    environment:
+      AUTH_URL: http://ms-auth:8081
+      ACCOUNTS_URL: http://ms-accounts:8082
+      TRANSFERS_URL: http://ms-transfers:8083
+      CARDS_URL: http://ms-cards:8084
+      FRAUD_URL: http://ms-fraud:8085
+      NOTIFICATIONS_URL: http://ms-notifications:8086
     ports:
       - "8080:8080"
 

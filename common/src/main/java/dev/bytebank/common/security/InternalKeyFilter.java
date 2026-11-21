@@ -7,6 +7,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -18,6 +20,7 @@ import java.util.List;
 public class InternalKeyFilter extends OncePerRequestFilter {
 
     public static final String HEADER = "X-Internal-Key";
+    public static final RequestMatcher INTERNAL_PATH = AntPathRequestMatcher.antMatcher("/internal/**");
 
     private final byte[] expectedKey;
 
@@ -27,7 +30,7 @@ public class InternalKeyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith("/internal/");
+        return !INTERNAL_PATH.matches(request);
     }
 
     @Override

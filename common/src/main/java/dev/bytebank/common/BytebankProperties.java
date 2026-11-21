@@ -23,12 +23,22 @@ public record BytebankProperties(@Valid @NotNull Jwt jwt, @NotBlank String inter
         }
     }
 
+    @Override
+    public String toString() {
+        return "BytebankProperties[jwt=" + jwt + ", internalKey=***, security=" + security + "]";
+    }
+
     /** Secreto con el que ms-auth firma los JWT y con el que el resto de servicios los valida. */
     public record Jwt(@NotBlank @Size(min = 32, message = "el secreto JWT debe tener al menos 32 caracteres") String secret,
                       Long expirationMinutes) {
 
         public long expirationMinutesOrDefault() {
             return expirationMinutes == null ? 60 : expirationMinutes;
+        }
+
+        @Override
+        public String toString() {
+            return "Jwt[secret=***, expirationMinutes=" + expirationMinutes + "]";
         }
     }
 
