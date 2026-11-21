@@ -145,6 +145,13 @@ class MovementServiceIntegrationTest extends IntegrationTest {
 
         mockMvc.perform(get("/api/accounts/" + account.getIban() + "/movements")
                         .header("Authorization", "Bearer " + ownerToken)
+                        .param("page", "10001")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+
+        mockMvc.perform(get("/api/accounts/" + account.getIban() + "/movements")
+                        .header("Authorization", "Bearer " + ownerToken)
                         .param("size", "0")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
@@ -161,6 +168,13 @@ class MovementServiceIntegrationTest extends IntegrationTest {
                         .header("Authorization", "Bearer " + ownerToken)
                         .param("from", "2026-05-31")
                         .param("to", "2026-05-01")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("RANGO_FECHAS_INVALIDO"));
+
+        mockMvc.perform(get("/api/accounts/" + account.getIban() + "/movements")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .param("from", "+300000-01-01")
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("RANGO_FECHAS_INVALIDO"));
