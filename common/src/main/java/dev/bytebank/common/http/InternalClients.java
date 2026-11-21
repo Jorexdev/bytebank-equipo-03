@@ -5,6 +5,8 @@ import dev.bytebank.common.BytebankProperties;
 import dev.bytebank.common.error.ApiError;
 import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.security.InternalKeyFilter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -19,6 +21,8 @@ import java.time.Duration;
  * y los 5xx o fallos de conexión a {@link RemoteUnavailableException} (ver {@link #call}).
  */
 public class InternalClients {
+
+    private static final Logger log = LoggerFactory.getLogger(InternalClients.class);
 
     private final RestClient.Builder builder;
     private final BytebankProperties properties;
@@ -51,7 +55,8 @@ public class InternalClients {
         } catch (ApiException e) {
             throw e;
         } catch (RuntimeException e) {
-            throw new RemoteUnavailableException("No se pudo contactar con el servicio remoto: " + e.getMessage());
+            log.error("Fallo al contactar con servicio interno", e);
+            throw new RemoteUnavailableException("El servicio remoto no está disponible temporalmente");
         }
     }
 
