@@ -123,10 +123,10 @@ public class NotificationController {
     })
     public ResponseEntity<PageResponse<NotificationResponse>> list(
             @Parameter(
-                    description = "Número de página (base 0)",
+                    description = "Número de página (base 0, entre 0 y 10000)",
                     example = "0"
             )
-            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
             @Parameter(
                     description = "Cantidad de elementos por página (entre 1 y 100)",
                     example = "20"

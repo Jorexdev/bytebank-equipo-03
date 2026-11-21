@@ -105,6 +105,13 @@ public class NotificationControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+
+        mockMvc.perform(get("/api/notifications")
+                        .param("page", "10001")
+                        .header("Authorization", "Bearer " + token)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
     }
 
     @Test
