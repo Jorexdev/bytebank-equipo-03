@@ -75,6 +75,13 @@ class TransferControllerTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+
+        mockMvc.perform(get("/api/transfers")
+                        .param("page", "10001")
+                        .header("Authorization", "Bearer " + token)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
     }
 
     @Test
@@ -241,6 +248,13 @@ class TransferControllerTest {
     void listPendingWithInvalidPageReturnsBadRequest() throws Exception {
         mockMvc.perform(get("/api/transfers/pending")
                         .param("size", "101")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+
+        mockMvc.perform(get("/api/transfers/pending")
+                        .param("page", "10001")
                         .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())

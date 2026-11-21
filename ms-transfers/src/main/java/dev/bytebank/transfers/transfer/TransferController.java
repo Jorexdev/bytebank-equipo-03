@@ -39,7 +39,7 @@ public class TransferController {
     }
 
     @GetMapping
-    public PageResponse<TransferResponse> list(@RequestParam(defaultValue = "0") @Min(0) int page,
+    public PageResponse<TransferResponse> list(@RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
                                                @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return transferService.list(page, size, CurrentUser.get());
     }
@@ -47,7 +47,7 @@ public class TransferController {
     @GetMapping("/pending")
     @PreAuthorize("hasRole('GESTOR')")
     public PageResponse<TransferResponse> listPending(
-            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
     ) {
         return transferService.listPending(page, size);
