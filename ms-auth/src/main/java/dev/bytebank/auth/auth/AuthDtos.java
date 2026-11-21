@@ -30,5 +30,10 @@ public final class AuthDtos {
     }
 
     public record TokenResponse(String token, String tokenType, long expiresInSeconds) {
+
+        @Override
+        public String toString() {
+            return "TokenResponse[token=***, tokenType=" + tokenType + ", expiresInSeconds=" + expiresInSeconds + "]";
+        }
     }
 }
