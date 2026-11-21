@@ -9,6 +9,8 @@ import dev.bytebank.common.error.ApiException;
 import dev.bytebank.common.http.RemoteUnavailableException;
 import dev.bytebank.common.iban.Iban;
 import dev.bytebank.common.security.AuthUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,10 +21,15 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class CardService {
+
+    private static final Logger log = LoggerFactory.getLogger(CardService.class);
+    private static final Set<String> DEBIT_REJECTION_CODES = Set.of(
+            "FONDOS_INSUFICIENTES", "CUENTA_NO_OPERATIVA", "CUENTA_NO_ENCONTRADA");
 
     private final CardRepository cards;
     private final CardPaymentRepository payments;
@@ -102,6 +109,11 @@ public class CardService {
         } catch (RemoteUnavailableException e) {
             throw e;
         } catch (ApiException e) {
+            if (e.getCode() == null || !DEBIT_REJECTION_CODES.contains(e.getCode())) {
+                log.error("Error inesperado de ms-accounts al cobrar tarjeta {}: status={}, code={}",
+                        card.getId(), e.getStatus(), e.getCode(), e);
+                throw new RemoteUnavailableException("El servicio de cuentas no está disponible temporalmente");
+            }
             payment.reject(e.getCode());
             return payments.save(payment);
         }
