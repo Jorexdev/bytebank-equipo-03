@@ -62,7 +62,9 @@ public class FraudService {
     @PreAuthorize("hasRole('GESTOR')")
     public PageResponse<CheckView> list(String iban, int page, int size) {
         var pageable = PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
-        var result = iban == null ? checks.findAll(pageable) : checks.findByOriginIban(Iban.normalize(iban), pageable);
+        var result = iban == null || iban.isBlank()
+                ? checks.findAll(pageable)
+                : checks.findByOriginIban(Iban.normalize(iban), pageable);
         return PageResponse.of(result, CheckView::from);
     }
 }
