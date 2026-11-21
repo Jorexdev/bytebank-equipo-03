@@ -58,17 +58,14 @@ curl -s localhost:8080/api/accounts -H "Authorization: Bearer $TOKEN"
 
 Los tests de integración usan Testcontainers, así que necesitan Docker arrancado.
 
-## Estado del proyecto (junio de 2026)
+## Estado del proyecto
 
-Notas para quien coja el proyecto:
+Todos los módulos y flujos principales del backend están implementados y cubiertos por la CI (compilación, tests unitarios/integración con Testcontainers y construcción de las 7 imágenes Docker):
 
-- **ms-cards** está a medias: se pueden listar y bloquear tarjetas, pero emitir y pagar devuelven 501.
-  El contrato acordado está en [docs/contratos/ms-cards.md](docs/contratos/ms-cards.md).
-- **ms-fraud** ya está integrado: ms-transfers consulta el antifraude antes de mover el dinero.
-  Si ms-fraud no responde la transferencia falla con 503 (fail-closed) y los importes de más de 5.000 €
-  quedan en revisión. Ver [docs/fraude.md](docs/fraude.md).
-- **ms-notifications** ya recibe los movimientos de Kafka y guarda los avisos, pero falta el endpoint para
-  consultarlos. Contrato en [docs/contratos/ms-notifications.md](docs/contratos/ms-notifications.md).
-- Algunos clientes se han quejado del extracto de movimientos. No me ha dado tiempo a mirarlo.
-
-Raúl
+- **ms-auth**: registro, login y emisión de JWT con secretos por variables de entorno (sin credenciales en código ni contraseñas en logs).
+- **ms-accounts**: cuentas individuales y compartidas (hasta 4 titulares, `POST /api/accounts/{iban}/holders`), control de acceso por titularidad/rol, saldos con `BigDecimal`/`NUMERIC(19,2)`, concurrencia con `PESSIMISTIC_WRITE`, extracto paginado en base 0 con filtro por fechas en zona `Europe/Madrid`, y publicación en Kafka tras el commit de la transacción (`afterCommit`). Ver [docs/contratos/ms-accounts.md](docs/contratos/ms-accounts.md).
+- **ms-transfers**: transferencias entre cuentas propias y externas con soporte de co-titulares, validación de importes, prevalidación de destino con reembolso compensatorio (`TRF-<id>-REV`), integración fail-closed con `ms-fraud`, y flujo completo de revisión por `GESTOR` para transferencias pendientes (`GET /api/transfers/pending`, `POST /api/transfers/{id}/approve`, `POST /api/transfers/{id}/reject`). Ver [docs/transferencias-revision.md](docs/transferencias-revision.md).
+- **ms-fraud**: reglas de importe máximo (`>= 20.000 €`), transferencia externa de importe alto (`>= 1.000 €`) y frecuencia (`> 5` en 10 min), con consulta restringida a `GESTOR` (`GET /api/fraud/checks`). Ver [docs/fraude.md](docs/fraude.md).
+- **ms-cards**: emisión (`POST /api/cards`), consulta, bloqueo/desbloqueo y pago con tarjetas de débito (`POST /api/cards/{id}/payments`), límite diario de 600 € con bloqueo pesimista contra condiciones de carrera y soporte de co-titulares. Ver [docs/contratos/ms-cards.md](docs/contratos/ms-cards.md).
+- **ms-notifications**: consumo idempotente de eventos de Kafka por `(user_id, movement_id)` para todos los titulares de la cuenta, conservación exacta con `BigDecimal` y consulta paginada en `GET /api/notifications`. Ver [docs/contratos/ms-notifications.md](docs/contratos/ms-notifications.md).
+- **Diagnóstico y registro técnico**: ver [docs/diagnostico.md](docs/diagnostico.md).

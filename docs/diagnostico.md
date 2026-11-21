@@ -36,29 +36,29 @@ Al intentar levantar el proyecto con `docker compose up --build` siguiendo el RE
    * **Solucion:** Se cambio `owner` por `owner_id` en el sql de la migracion.
 
 3. **Falta del archivo .env:**
-   * En `docker-compose.yml` se piden obligatoriamente las variables `POSTGRES_PASSWORD` e `INTERNAL_KEY`. Si no existe el archivo `.env` docker se frena antes de levantar nada.
+   * En `docker-compose.yml` se piden obligatoriamente las variables `POSTGRES_PASSWORD`, `JWT_SECRET` e `INTERNAL_KEY`. Si no existe el archivo `.env` docker se frena antes de levantar nada.
    * **Solucion:** Crear el `.env` local copiando el `.env.example`.
 
 ---
 
-## 3. Que falta (pendientes que dejo el equipo anterior)
+## 3. Que faltaba inicialmente (estado actualizado)
 
-Revisando el codigo y las notas del README hay varias cosas que quedaron a medias:
+Revisando el codigo y las notas iniciales del README habia varias cosas a medias que ya fueron resueltas durante el proyecto:
 
-* **ms-cards:** Los endpoints de emitir tarjeta (`POST /api/cards`) y de pagar (`POST /api/cards/{id}/payments`) devuelven 501 Not Implemented, estan sin terminar
-* **ms-notifications:** Ya recibe los eventos de movimientos desde Kafka y los guarda, pero no tiene implementado el endpoint `GET /api/notifications` para que el cliente pueda consultarlos
-* **ms-fraud:** Resuelto. `ms-transfers` ya consulta `ms-fraud` antes de mover el dinero (ver seccion 7) y la regla de frecuencia esta implementada. Queda pendiente el endpoint de gestor para revisar las transferencias en `PENDIENTE_REVISION
-* **Extracto de cuentas:** Hay que revisar la logica del extracto de movimientos en ms-accounts porque hay quejas reportadas
+* **ms-cards (Resuelto):** Los endpoints de emitir tarjeta (`POST /api/cards`) y de pagar (`POST /api/cards/{id}/payments`) ya estan implementados con limite diario de 600 €, bloqueo pesimista frente a condiciones de carrera y soporte para co-titulares (`docs/contratos/ms-cards.md`).
+* **ms-notifications (Resuelto):** Implementado `GET /api/notifications`, deduplicacion idempotente por `(user_id, movement_id)`, soporte multi-titular y precision con `BigDecimal` (`docs/contratos/ms-notifications.md`).
+* **ms-fraud y revision de transferencias (Resuelto):** `ms-transfers` consulta `ms-fraud` antes de mover dinero (ver seccion 7), la regla de frecuencia y el bloqueo `>= 20.000 €` estan implementados, `GET /api/fraud/checks` restringido a `GESTOR`, y los endpoints de gestor para `PENDIENTE_REVISION` estan documentados en `docs/transferencias-revision.md`.
+* **Extracto de cuentas (Resuelto):** Corregidos el offset base 0, el orden determinista y el filtro por fechas inclusivo en zona horaria `Europe/Madrid` (BUG-03 / BUG-04).
 
 ---
 
-## 4. Que riesgos vemos
+## 4. Riesgos identificados inicialmente y estado actual
 
-* **Clave secreta del JWT hardcodeada:** En `common/security/SecurityConstants.java` el secret del JWT esta escrito directo en el codigo (`bytebank-secret-key-...`). Cualquiera que vea el repo puede generar tokens validos. Hay que sacarlo a variable de entorno
-* **Misma clave interna para todo:** La `INTERNAL_KEY` es compartida entre todos los servicios sin rotacion ni certificados mTLS entre ellos
-* **Falta de rollback o saga completa en transferencias:** Cuando se hace una transferencia primero se saca plata de una cuenta y luego se ingresa en la otra con llamadas http normales. Ahora se reembolsa el cargo si falla el abono al destino (ver seccion 6), pero sigue sin haber idempotencia ni outbox, asi que un timeout ambiguo puede requerir conciliacion manual
-* **Unico servidor de Postgres:** Todas las bases de datos de los servicios estan metidas en el mismo contenedor de postgres, si se cae ese contenedor se cae todo el sistema
-* **Ojo con volumenes viejos de Docker:** Si alguien intento levantar docker antes de arreglar la migracion V3 de accounts, la base de datos de postgres puede haber guardado el error de flyway. Si pasa eso hay que hacer `docker compose down -v` para limpiar los volumenes y arrancar limpio
+* **Clave secreta del JWT hardcodeada (Resuelto en SEG-02):** `SecurityConstants.java` fue eliminado; `JWT_SECRET` e `INTERNAL_KEY` se leen obligatoriamente por variables de entorno y las contraseñas ya no se registran en logs.
+* **Misma clave interna para todo (Riesgo arquitectonico asumido):** La `INTERNAL_KEY` es compartida entre los servicios sin rotacion automatica ni certificados mTLS.
+* **Falta de rollback o saga completa en transferencias (Mitigado):** Se prevalida el destino y se reembolsa el cargo si falla el abono (`TRF-<id>-REV`, ver seccion 6), pero sigue sin haber idempotencia por referencia ni outbox en `ms-accounts`, asi que un timeout ambiguo puede requerir conciliacion manual.
+* **Unico servidor de Postgres (Riesgo operativo en entorno local):** Todas las bases de datos de los servicios comparten instancia de PostgreSQL en Docker Compose.
+* **Ojo con volumenes viejos de Docker:** Si alguien intento levantar docker antes de arreglar la migracion V3 de accounts, la base de datos de postgres puede haber guardado el error de flyway. Si pasa eso hay que hacer `docker compose down -v` para limpiar los volumenes y arrancar limpio.
 
 ---
 
@@ -85,8 +85,7 @@ Revisando el codigo y las notas del README hay varias cosas que quedaron a media
 
 Resultado: 3 tests de `common` y 8 tests de `ms-transfers` en verde (0 fallos, 0 errores).
 
-**Riesgo residual:** `ms-accounts` sigue sin validar el importe en `MovementRequest`, por lo que `/internal/accounts/debit` y `/internal/accounts/credit` aceptarian importes negativos si se llaman directamente. 
-Queda fuera del alcance de `ms-transfers` y deberian tratarse.
+**Estado posterior:** `ms-accounts` ya valida `amount` en `LedgerDtos.MovementRequest` con `@NotNull @DecimalMin("0.01") @Digits(integer = 15, fraction = 2)`, cerrando el riesgo en `/internal/accounts/debit` y `/internal/accounts/credit`.
 
 ---
 
@@ -150,7 +149,7 @@ Resultado: 9 tests de `common` y 29 tests de `ms-transfers` en verde (0 fallos, 
 **Pendiente y riesgo residual:**
 
 * Los motivos concretos de fraude (`reasons`) van al log pero no se guardan: en `REVISAR` se guarda un motivo generico (`TRANSFERENCIA_EN_REVISION`). Falta decidir si se persisten y si tambien se guardan en `BLOQUEADA`.
-* No hay endpoints de gestor para listar/aprobar/rechazar las transferencias en `PENDIENTE_REVISION`; quedan en ese estado hasta que existan (otro ticket).
+* Los endpoints de gestor para listar/aprobar/rechazar las transferencias en `PENDIENTE_REVISION` ya quedaron implementados en CAM-02 (`docs/transferencias-revision.md`).
 * Fail-closed tiene un coste: si `ms-fraud` esta caido, no se puede transferir nada. Es una decision de negocio asumida para este ticket.
 * Las llamadas internas siguen sin idempotencia; si ms-fraud confirma el veredicto pero la respuesta se pierde, el reintento repite la validacion (no mueve dinero, asi que el riesgo es de disponibilidad, no de saldo).
 
