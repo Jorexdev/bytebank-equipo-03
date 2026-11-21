@@ -16,6 +16,8 @@ import java.util.List;
 @Service
 public class MovementService {
 
+    private static final LocalDate MIN_DATE = LocalDate.of(1970, 1, 1);
+    private static final LocalDate MAX_DATE = LocalDate.of(2999, 12, 31);
     private static final Instant MIN = Instant.parse("1970-01-01T00:00:00Z");
     private static final Instant MAX = Instant.parse("3000-01-01T00:00:00Z");
     private static final int MAX_PAGE_SIZE = 100;
@@ -56,7 +58,7 @@ public class MovementService {
     }
 
     private Instant toInclusiveEnd(LocalDate to) {
-        return to.equals(LocalDate.MAX) ? MAX : to.plusDays(1).atStartOfDay(zone).toInstant();
+        return to.plusDays(1).atStartOfDay(zone).toInstant();
     }
 
     private static void validateRequest(LocalDate from, LocalDate to, int page, int size) {
@@ -64,9 +66,17 @@ public class MovementService {
             throw ApiException.badRequest("DATOS_NO_VALIDOS",
                     "Paginación no válida: page debe ser >= 0 y size entre 1 y " + MAX_PAGE_SIZE);
         }
+        if (isOutOfRange(from) || isOutOfRange(to)) {
+            throw ApiException.badRequest("RANGO_FECHAS_INVALIDO",
+                    "Las fechas deben estar entre " + MIN_DATE + " y " + MAX_DATE);
+        }
         if (from != null && to != null && from.isAfter(to)) {
             throw ApiException.badRequest("RANGO_FECHAS_INVALIDO",
                     "La fecha 'from' no puede ser posterior a 'to'");
         }
+    }
+
+    private static boolean isOutOfRange(LocalDate date) {
+        return date != null && (date.isBefore(MIN_DATE) || date.isAfter(MAX_DATE));
     }
 }

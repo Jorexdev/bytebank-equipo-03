@@ -171,4 +171,21 @@ class MovementServiceTest {
                 Instant.parse("2026-05-01T00:00:00Z"),
                 Instant.parse("2026-06-01T00:00:00Z"));
     }
+
+    @Test
+    @DisplayName("BUG-04: rechaza fechas ISO fuera del rango soportado [1970-01-01, 2999-12-31] con 400")
+    void rejectsOutOfRangeDates() {
+        Account account = mock(Account.class);
+
+        assertThatThrownBy(() -> service.statement(account, LocalDate.of(300000, 1, 1), null, 0, 20))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(e.getCode()).isEqualTo("RANGO_FECHAS_INVALIDO");
+                });
+        assertThatThrownBy(() -> service.statement(account, null, LocalDate.of(-5000, 1, 1), 0, 20))
+                .isInstanceOfSatisfying(ApiException.class, e -> {
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
+                    assertThat(e.getCode()).isEqualTo("RANGO_FECHAS_INVALIDO");
+                });
+    }
 }

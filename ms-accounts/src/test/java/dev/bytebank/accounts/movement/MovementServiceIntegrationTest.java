@@ -164,6 +164,13 @@ class MovementServiceIntegrationTest extends IntegrationTest {
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("RANGO_FECHAS_INVALIDO"));
+
+        mockMvc.perform(get("/api/accounts/" + account.getIban() + "/movements")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .param("from", "+300000-01-01")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("RANGO_FECHAS_INVALIDO"));
     }
 
     private void insertMovement(String concept, Instant createdAt, int balanceAfter) {
