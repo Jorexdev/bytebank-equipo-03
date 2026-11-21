@@ -64,7 +64,7 @@ public class AccountController {
             @PathVariable String iban,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "0") @Min(0) @Max(10000) int page,
             @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return movementService.statement(accountService.getForUser(iban, CurrentUser.get()), from, to, page, size);
     }
