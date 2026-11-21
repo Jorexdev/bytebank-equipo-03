@@ -76,4 +76,26 @@ class MovementEventTest {
         assertThat(event.movementId()).isEqualTo(156L);
         assertThat(event.recipientIds()).containsExactly(2L, 3L);
     }
+
+    @Test
+    void eventoConHolderIdsSoloConNullHaceFallbackAlOwner() throws Exception {
+        String payload = """
+                {
+                  "movementId": 157,
+                  "iban": "ES7639990001000000000001",
+                  "ownerId": 2,
+                  "holderIds": [null, null],
+                  "type": "INGRESO",
+                  "amount": 50.00,
+                  "balanceAfter": 2500.00,
+                  "concept": "Nómina",
+                  "reference": "TRF-9a1c",
+                  "createdAt": "2026-06-12T10:05:00Z"
+                }
+                """;
+
+        MovementEvent event = objectMapper.readValue(payload, MovementEvent.class);
+
+        assertThat(event.recipientIds()).containsExactly(2L);
+    }
 }
