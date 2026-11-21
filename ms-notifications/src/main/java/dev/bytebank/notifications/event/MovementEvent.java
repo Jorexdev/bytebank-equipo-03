@@ -28,9 +28,11 @@ public record MovementEvent(
 
     /** IDs a los que hay que avisar: titulares sin repetidos o, en eventos antiguos, el ownerId. */
     public List<Long> recipientIds() {
-        if (holderIds == null || holderIds.isEmpty()) {
+        List<Long> recipients = holderIds == null ? List.of()
+                : holderIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (recipients.isEmpty()) {
             return ownerId == null ? List.of() : List.of(ownerId);
         }
-        return holderIds.stream().filter(Objects::nonNull).distinct().toList();
+        return recipients;
     }
 }

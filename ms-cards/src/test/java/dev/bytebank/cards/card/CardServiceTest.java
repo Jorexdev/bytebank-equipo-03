@@ -239,6 +239,23 @@ class CardServiceTest {
     }
 
     @Test
+    @DisplayName("Propaga 503 y no guarda el pago si accounts devuelve un error técnico 4xx inesperado o sin código")
+    void propagatesUnavailableOnUnexpectedTechnicalErrorFromAccounts() {
+        Card card = card(1L, ANA.id(), CardStatus.ACTIVA);
+        when(cards.findByIdForUpdate(1L)).thenReturn(Optional.of(card));
+        when(payments.sumAmountSince(1L, PaymentStatus.APROBADO, START_OF_DAY_MADRID)).thenReturn(BigDecimal.ZERO);
+        when(accountsClient.debit(anyString(), eq(IBAN), any(), any()))
+                .thenThrow(new ApiException(HttpStatus.UNAUTHORIZED, "NO_AUTENTICADO", "Clave interna inválida"))
+                .thenThrow(new ApiException(HttpStatus.BAD_REQUEST, null, "Error sin código"));
+
+        assertThatThrownBy(() -> service.pay(1L, new BigDecimal("10.00"), "Supermercado", ANA))
+                .isInstanceOf(RemoteUnavailableException.class);
+        assertThatThrownBy(() -> service.pay(1L, new BigDecimal("10.00"), "Supermercado", ANA))
+                .isInstanceOf(RemoteUnavailableException.class);
+        verify(payments, never()).save(any());
+    }
+
+    @Test
     @DisplayName("No permite pagar con una tarjeta de otro usuario: 404 TARJETA_NO_ENCONTRADA")
     void cannotPayWithAnotherUsersCard() {
         Card card = card(1L, 99L, CardStatus.ACTIVA);
