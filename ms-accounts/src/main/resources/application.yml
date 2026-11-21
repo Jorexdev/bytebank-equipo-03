@@ -16,6 +16,9 @@ spring:
       hibernate.jdbc.time_zone: UTC
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      properties:
+        max.block.ms: ${KAFKA_MAX_BLOCK_MS:2000}
 
 bytebank:
   zone: Europe/Madrid
