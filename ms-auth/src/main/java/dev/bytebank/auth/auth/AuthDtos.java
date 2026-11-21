@@ -11,7 +11,7 @@ public final class AuthDtos {
 
     /** El toString oculta la contraseña: así, aunque alguien loguee el objeto, no sale en claro. */
     public record RegisterRequest(
-            @NotBlank @Email String email,
+            @NotBlank @Email @Size(max = 254) String email,
             @NotBlank @Size(min = 8, max = 72, message = "la contraseña debe tener entre 8 y 72 caracteres") String password,
             @NotBlank @Size(max = 120) String fullName) {
 
