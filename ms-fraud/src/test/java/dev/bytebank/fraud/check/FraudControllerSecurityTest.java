@@ -114,4 +114,19 @@ class FraudControllerSecurityTest {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.content").isArray());
     }
+
+    @Test
+    @DisplayName("GET /api/fraud/checks con page > 10000 rechaza con 400 DATOS_NO_VALIDOS")
+    void listWithExcessivePageReturnsBadRequest() throws Exception {
+        String gestorToken = token(99L, "gestor@bytebank.test", Role.GESTOR);
+
+        mockMvc.perform(get("/api/fraud/checks")
+                        .param("page", "10001")
+                        .header("Authorization", "Bearer " + gestorToken)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+
+        verifyNoInteractions(fraudService);
+    }
 }
