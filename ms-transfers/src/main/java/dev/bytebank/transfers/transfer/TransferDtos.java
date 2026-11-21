@@ -24,12 +24,20 @@ public final class TransferDtos {
             @Size(max = 140) String concept) {
     }
 
+    public record RejectTransferRequest(
+            @NotBlank(message = "El motivo de rechazo es obligatorio")
+            @Size(max = 255, message = "El motivo no puede superar 255 caracteres")
+            String reason) {
+    }
+
     public record TransferResponse(Long id, String originIban, String destinationIban, BigDecimal amount,
-                                   String concept, TransferStatus status, String rejectionReason, Instant createdAt) {
+                                   String concept, TransferStatus status, String rejectionReason, Instant createdAt,
+                                   String reviewReason, Long reviewedBy, Instant reviewedAt, String reviewNote) {
 
         public static TransferResponse from(Transfer t) {
             return new TransferResponse(t.getId(), t.getOriginIban(), t.getDestinationIban(), t.getAmount(),
-                    t.getConcept(), t.getStatus(), t.getRejectionReason(), t.getCreatedAt());
+                    t.getConcept(), t.getStatus(), t.getRejectionReason(), t.getCreatedAt(),
+                    t.getReviewReason(), t.getReviewedBy(), t.getReviewedAt(), t.getReviewNote());
         }
     }
 }

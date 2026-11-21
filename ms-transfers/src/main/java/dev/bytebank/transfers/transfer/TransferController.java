@@ -3,6 +3,7 @@ package dev.bytebank.transfers.transfer;
 import dev.bytebank.common.security.CurrentUser;
 import dev.bytebank.common.web.PageResponse;
 import dev.bytebank.transfers.transfer.TransferDtos.CreateTransferRequest;
+import dev.bytebank.transfers.transfer.TransferDtos.RejectTransferRequest;
 import dev.bytebank.transfers.transfer.TransferDtos.TransferResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -41,6 +42,30 @@ public class TransferController {
     public PageResponse<TransferResponse> list(@RequestParam(defaultValue = "0") @Min(0) int page,
                                                @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
         return transferService.list(page, size, CurrentUser.get());
+    }
+
+    @GetMapping("/pending")
+    @PreAuthorize("hasRole('GESTOR')")
+    public PageResponse<TransferResponse> listPending(
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size
+    ) {
+        return transferService.listPending(page, size);
+    }
+
+    @PostMapping("/{id}/approve")
+    @PreAuthorize("hasRole('GESTOR')")
+    public TransferResponse approve(@PathVariable Long id) {
+        return TransferResponse.from(transferService.approve(id, CurrentUser.get()));
+    }
+
+    @PostMapping("/{id}/reject")
+    @PreAuthorize("hasRole('GESTOR')")
+    public TransferResponse reject(
+            @PathVariable Long id,
+            @Valid @RequestBody RejectTransferRequest request
+    ) {
+        return TransferResponse.from(transferService.reject(id, request.reason(), CurrentUser.get()));
     }
 
     @GetMapping("/{id}")

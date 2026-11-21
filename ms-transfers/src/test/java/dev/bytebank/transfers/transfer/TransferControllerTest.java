@@ -30,6 +30,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -106,7 +107,8 @@ class TransferControllerTest {
     @DisplayName("GET /api/transfers con token válido devuelve listado paginado (200 OK)")
     void listWithValidTokenReturnsPaginatedTransfers() throws Exception {
         TransferResponse response = new TransferResponse(1L, Iban.generate(1), Iban.generate(2),
-                new BigDecimal("100.00"), "Cena", TransferStatus.COMPLETADA, null, Instant.now());
+                new BigDecimal("100.00"), "Cena", TransferStatus.COMPLETADA, null, Instant.now(),
+                null, null, null, null);
         when(transferService.list(eq(0), eq(20), any()))
                 .thenReturn(new PageResponse<>(List.of(response), 0, 20, 1, 1));
 
@@ -202,5 +204,160 @@ class TransferControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("COMPLETADA"))
                 .andExpect(jsonPath("$.amount").value(100.00));
+    }
+
+    @Test
+    @DisplayName("GET /api/transfers/pending devuelve pendientes solo al gestor")
+    void listPendingForGestorReturnsPaginatedTransfers() throws Exception {
+        Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.pendingReview("TRANSFERENCIA_SUPERA_UMBRAL");
+        when(transferService.listPending(eq(0), eq(20)))
+                .thenReturn(new PageResponse<>(List.of(TransferResponse.from(transfer)), 0, 20, 1, 1));
+
+        mockMvc.perform(get("/api/transfers/pending")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].status").value("PENDIENTE_REVISION"))
+                .andExpect(jsonPath("$.content[0].reviewReason").value("TRANSFERENCIA_SUPERA_UMBRAL"))
+                .andExpect(jsonPath("$.page").value(0));
+
+        verify(transferService).listPending(0, 20);
+    }
+
+    @Test
+    @DisplayName("GET /api/transfers/pending rechaza clientes")
+    void listPendingForClienteReturnsForbidden() throws Exception {
+        mockMvc.perform(get("/api/transfers/pending")
+                        .header("Authorization", "Bearer " + token(2L, "ana@bytebank.test", Role.CLIENTE))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+    }
+
+    @Test
+    @DisplayName("GET /api/transfers/pending valida la paginación")
+    void listPendingWithInvalidPageReturnsBadRequest() throws Exception {
+        mockMvc.perform(get("/api/transfers/pending")
+                        .param("size", "101")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/approve devuelve la transferencia revisada")
+    void approveWithGestorReturnsTransfer() throws Exception {
+        Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.complete();
+        transfer.recordReview(99L);
+        when(transferService.approve(eq(1L), any())).thenReturn(transfer);
+
+        mockMvc.perform(post("/api/transfers/1/approve")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETADA"))
+                .andExpect(jsonPath("$.reviewedBy").value(99))
+                .andExpect(jsonPath("$.reviewedAt").exists());
+
+        verify(transferService).approve(eq(1L), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/approve rechaza clientes")
+    void approveWithClienteReturnsForbidden() throws Exception {
+        mockMvc.perform(post("/api/transfers/1/approve")
+                        .header("Authorization", "Bearer " + token(2L, "ana@bytebank.test", Role.CLIENTE))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/approve propaga 404")
+    void approveUnknownTransferReturnsNotFound() throws Exception {
+        when(transferService.approve(eq(1L), any()))
+                .thenThrow(ApiException.notFound("TRANSFERENCIA_NO_ENCONTRADA", "No existe la transferencia 1"));
+
+        mockMvc.perform(post("/api/transfers/1/approve")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TRANSFERENCIA_NO_ENCONTRADA"));
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject devuelve rechazo auditado")
+    void rejectWithGestorReturnsRejectedTransfer() throws Exception {
+        Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.rejectByReviewer(99L, "Operación no justificada");
+        when(transferService.reject(eq(1L), eq("Operación no justificada"), any())).thenReturn(transfer);
+
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"Operación no justificada"}
+                                """)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RECHAZADA"))
+                .andExpect(jsonPath("$.rejectionReason").value("RECHAZADA_POR_GESTOR"))
+                .andExpect(jsonPath("$.reviewedBy").value(99))
+                .andExpect(jsonPath("$.reviewNote").value("Operación no justificada"));
+
+        verify(transferService).reject(eq(1L), eq("Operación no justificada"), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject valida el motivo")
+    void rejectWithoutReasonReturnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":" "}
+                                """)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"))
+                .andExpect(jsonPath("$.fields.reason").exists());
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject rechaza clientes")
+    void rejectWithClienteReturnsForbidden() throws Exception {
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(2L, "ana@bytebank.test", Role.CLIENTE))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"No procede"}
+                                """)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject propaga 409")
+    void rejectAlreadyReviewedTransferReturnsConflict() throws Exception {
+        when(transferService.reject(eq(1L), eq("No procede"), any()))
+                .thenThrow(ApiException.conflict("TRANSFERENCIA_NO_PENDIENTE",
+                        "La transferencia 1 ya no está pendiente de revisión"));
+
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"reason":"No procede"}
+                                """)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("TRANSFERENCIA_NO_PENDIENTE"));
     }
 }
