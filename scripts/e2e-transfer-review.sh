@@ -85,7 +85,7 @@ rejected="$(request 200 \
     -X POST "${API_BASE}/api/transfers/${transfer_id}/reject" \
     -H "Authorization: Bearer ${gestor_token}" \
     -H 'Content-Type: application/json' \
-    -d '{"reason":"Revisión E2E"}')"
+    -d '{"comment":"Revisión E2E"}')"
 printf '%s' "$rejected" | python3 -c '
 import json, sys
 item = json.load(sys.stdin)

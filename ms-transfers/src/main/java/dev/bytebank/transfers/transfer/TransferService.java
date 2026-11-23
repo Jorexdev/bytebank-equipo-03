@@ -163,14 +163,12 @@ public class TransferService {
     }
 
     @Transactional
-    public Transfer reject(Long id, String reason, AuthUser reviewer) {
+    public Transfer reject(Long id, String comment, AuthUser reviewer) {
         requireGestor(reviewer);
-        String note = reason == null ? "" : reason.trim();
-        if (note.isEmpty()) {
-            throw ApiException.badRequest("DATOS_NO_VALIDOS", "El motivo de rechazo es obligatorio");
-        }
-        if (note.length() > 255) {
-            throw ApiException.badRequest("DATOS_NO_VALIDOS", "El motivo no puede superar 255 caracteres");
+        String stripped = comment == null ? null : comment.strip();
+        String note = (stripped == null || stripped.isEmpty()) ? null : stripped;
+        if (note != null && note.length() > 255) {
+            throw ApiException.badRequest("DATOS_NO_VALIDOS", "El comentario no puede superar 255 caracteres");
         }
         Transfer transfer = findPendingForUpdate(id);
         transfer.rejectByReviewer(reviewer.id(), note);

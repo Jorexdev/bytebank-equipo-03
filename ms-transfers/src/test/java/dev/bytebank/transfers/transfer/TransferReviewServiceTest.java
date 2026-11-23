@@ -265,17 +265,62 @@ class TransferReviewServiceTest {
         assertThat(result.getRejectionReason()).isEqualTo("RECHAZADA_POR_GESTOR");
         assertThat(result.getReviewNote()).isEqualTo("Operación sospechosa");
         assertThat(result.getReviewedBy()).isEqualTo(GESTOR.id());
+        assertThat(result.getReviewedAt()).isNotNull();
         verify(accounts, never()).debit(anyString(), anyString(), any(), any());
         verify(accounts, never()).credit(anyString(), anyString(), any(), any());
         verify(accounts, never()).refund(anyString(), anyString(), any(), any());
     }
 
     @Test
-    void rejectRequiresReason() {
-        assertThatThrownBy(() -> service.reject(1L, "   ", GESTOR))
+    void rejectsPendingTransferWithoutComment() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+
+        Transfer result = service.reject(1L, null, GESTOR);
+
+        assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(result.getRejectionReason()).isEqualTo("RECHAZADA_POR_GESTOR");
+        assertThat(result.getReviewNote()).isNull();
+        assertThat(result.getReviewedBy()).isEqualTo(GESTOR.id());
+        assertThat(result.getReviewedAt()).isNotNull();
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).credit(anyString(), anyString(), any(), any());
+        verify(accounts, never()).refund(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    void rejectsPendingTransferWithBlankCommentNormalizingToNull() {
+        for (String blank : List.of("", "   ", "\t\n", "\u2003")) {
+            Transfer transfer = pending("6000.00");
+            when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+
+            Transfer result = service.reject(1L, blank, GESTOR);
+
+            assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+            assertThat(result.getRejectionReason()).isEqualTo("RECHAZADA_POR_GESTOR");
+            assertThat(result.getReviewNote()).isNull();
+        }
+    }
+
+    @Test
+    void acceptsRejectionCommentAtMaximumLength() {
+        Transfer transfer = pending("6000.00");
+        when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
+        String comment = "x".repeat(255);
+
+        Transfer result = service.reject(1L, "  " + comment + "  ", GESTOR);
+
+        assertThat(result.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(result.getReviewNote()).isEqualTo(comment);
+    }
+
+    @Test
+    void rejectsCommentLongerThan255Characters() {
+        assertThatThrownBy(() -> service.reject(1L, "x".repeat(256), GESTOR))
                 .isInstanceOfSatisfying(ApiException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
                     assertThat(e.getCode()).isEqualTo("DATOS_NO_VALIDOS");
+                    assertThat(e.getMessage()).isEqualTo("El comentario no puede superar 255 caracteres");
                 });
         verify(transfers, never()).findByIdForUpdate(any());
     }
@@ -285,7 +330,7 @@ class TransferReviewServiceTest {
         Transfer transfer = new Transfer(ORIGIN, DESTINATION, new BigDecimal("100.00"), null, 2L);
         when(transfers.findByIdForUpdate(1L)).thenReturn(Optional.of(transfer));
 
-        assertThatThrownBy(() -> service.reject(1L, "motivo", GESTOR))
+        assertThatThrownBy(() -> service.reject(1L, "comentario", GESTOR))
                 .isInstanceOfSatisfying(ApiException.class, e ->
                         assertThat(e.getCode()).isEqualTo("TRANSFERENCIA_NO_PENDIENTE"));
     }
@@ -333,7 +378,7 @@ class TransferReviewServiceTest {
 
     @Test
     void rejectRequiresAuthenticatedGestor() {
-        assertThatThrownBy(() -> service.reject(1L, "motivo", null))
+        assertThatThrownBy(() -> service.reject(1L, "comentario", null))
                 .isInstanceOfSatisfying(ApiException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED);
                     assertThat(e.getCode()).isEqualTo("NO_AUTENTICADO");
@@ -343,7 +388,7 @@ class TransferReviewServiceTest {
 
     @Test
     void rejectRejectsClient() {
-        assertThatThrownBy(() -> service.reject(1L, "motivo", ANA))
+        assertThatThrownBy(() -> service.reject(1L, "comentario", ANA))
                 .isInstanceOfSatisfying(ApiException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.FORBIDDEN);
                     assertThat(e.getCode()).isEqualTo("ACCESO_DENEGADO");

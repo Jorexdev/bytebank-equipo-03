@@ -95,10 +95,10 @@ public class Transfer {
         this.reviewedBy = reviewer;
         this.reviewedAt = Instant.now();
     }
-     public void rejectByReviewer(Long reviewer, String reason) {
+    public void rejectByReviewer(Long reviewer, String comment) {
         this.status = TransferStatus.RECHAZADA;
         this.rejectionReason = "RECHAZADA_POR_GESTOR";
-        this.reviewNote = reason;
+        this.reviewNote = comment;
         recordReview(reviewer);
     }
     public void recordFraudCheckResult(String verdict, Long checkId) {
