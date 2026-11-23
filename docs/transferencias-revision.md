@@ -98,6 +98,10 @@ espacios, `reviewNote` queda en `null`. La respuesta `200 OK` incluye `status: "
 | 415 | `TIPO_CONTENIDO_NO_SOPORTADO` | Se envía cuerpo con un `Content-Type` distinto de `application/json` |
 | 503 | `SERVICIO_NO_DISPONIBLE` | `ms-accounts` no responde antes de debitar (la transferencia permanece en `PENDIENTE_REVISION` para reintentar) |
 
+## Riesgo asumido en `approve`
+
+`TransferService#approve` ejecuta el cargo y el abono por HTTP contra `ms-accounts` dentro de una transacción `@Transactional` con bloqueo pesimista (`FOR UPDATE`) en `transfers_db`. Si `ms-accounts` confirma el movimiento de dinero y falla el guardado o el `COMMIT` final en `transfers_db` (o se produce un timeout ambiguo de `5 s` en el débito), el rollback local devuelve la transferencia a `PENDIENTE_REVISION` con el dinero ya movido (mismo riesgo asumido que `CardService#pay`). El análisis de alternativas y la hoja de ruta con idempotencia en `ms-accounts` + estado `EN_PROCESO` + reconciliación están documentados en [docs/decisiones.md](decisiones.md#adr-05--mantener-http-dentro-de-transactional-en-transferserviceapprove-y-cardservicepay-como-riesgo-asumido) y [docs/diagnostico.md](diagnostico.md#4-riesgos-ordenados-por-gravedad).
+
 ## Prueba E2E con Docker Compose
 
 Requisitos: Docker Compose, `curl` y Python 3. Primero copia `.env.example` a

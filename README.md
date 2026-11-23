@@ -68,4 +68,5 @@ Todos los módulos y flujos principales del backend están implementados y cubie
 - **ms-fraud**: reglas de importe máximo (`>= 20.000 €`), transferencia externa de importe alto (`>= 1.000 €`) y frecuencia (`> 5` en 10 min), con consulta restringida a `GESTOR` (`GET /api/fraud/checks`). Ver [docs/fraude.md](docs/fraude.md).
 - **ms-cards**: emisión (`POST /api/cards`), consulta, bloqueo/desbloqueo y pago con tarjetas de débito (`POST /api/cards/{id}/payments`), límite diario de 600 € con bloqueo pesimista contra condiciones de carrera y soporte de co-titulares. Ver [docs/contratos/ms-cards.md](docs/contratos/ms-cards.md).
 - **ms-notifications**: consumo idempotente de eventos de Kafka por `(user_id, movement_id)` para todos los titulares de la cuenta, conservación exacta con `BigDecimal` y consulta paginada en `GET /api/notifications`. Ver [docs/contratos/ms-notifications.md](docs/contratos/ms-notifications.md).
-- **Diagnóstico y registro técnico**: ver [docs/diagnostico.md](docs/diagnostico.md).
+- **Decisiones de arquitectura**: ver [docs/decisiones.md](docs/decisiones.md).
+- **Diagnóstico y registro de riesgos por gravedad**: ver [docs/diagnostico.md](docs/diagnostico.md).
