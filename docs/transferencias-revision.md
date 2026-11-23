@@ -78,22 +78,24 @@ Authorization: Bearer <token-de-gestor>
 Content-Type: application/json
 
 {
-  "reason": "Operación no justificada"
+  "comment": "Operación no justificada"
 }
 ```
 
-`reason` es obligatorio y admite como máximo 255 caracteres. La respuesta
-`200 OK` incluye `status: "RECHAZADA"`, `rejectionReason:
-"RECHAZADA_POR_GESTOR"`, `reviewNote`, `reviewedBy` y `reviewedAt`.
+El cuerpo es opcional: puede invocarse sin cuerpo, con `{}` o con `{ "comment": "..." }`.
+`comment` es opcional y admite como máximo 255 caracteres; si se omite o solo contiene
+espacios, `reviewNote` queda en `null`. La respuesta `200 OK` incluye `status: "RECHAZADA"`,
+`rejectionReason: "RECHAZADA_POR_GESTOR"`, `reviewNote`, `reviewedBy` y `reviewedAt`.
 
 ## Errores
 
 | HTTP | Código | Situación |
 |---|---|---|
-| 400 | `DATOS_NO_VALIDOS` | Paginación o motivo inválido |
+| 400 | `DATOS_NO_VALIDOS` | Paginación, comentario (> 255 caracteres) o cuerpo JSON inválido |
 | 403 | `ACCESO_DENEGADO` | El usuario no tiene rol `GESTOR` |
 | 404 | `TRANSFERENCIA_NO_ENCONTRADA` | No existe la transferencia |
 | 409 | `TRANSFERENCIA_NO_PENDIENTE` | Ya fue revisada |
+| 415 | `TIPO_CONTENIDO_NO_SOPORTADO` | Se envía cuerpo con un `Content-Type` distinto de `application/json` |
 | 503 | `SERVICIO_NO_DISPONIBLE` | `ms-accounts` no responde antes de debitar (la transferencia permanece en `PENDIENTE_REVISION` para reintentar) |
 
 ## Prueba E2E con Docker Compose

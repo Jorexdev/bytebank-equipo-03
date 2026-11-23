@@ -63,9 +63,10 @@ public class TransferController {
     @PreAuthorize("hasRole('GESTOR')")
     public TransferResponse reject(
             @PathVariable Long id,
-            @Valid @RequestBody RejectTransferRequest request
+            @Valid @RequestBody(required = false) RejectTransferRequest request
     ) {
-        return TransferResponse.from(transferService.reject(id, request.reason(), CurrentUser.get()));
+        String comment = request == null ? null : request.comment();
+        return TransferResponse.from(transferService.reject(id, comment, CurrentUser.get()));
     }
 
     @GetMapping("/{id}")

@@ -180,6 +180,21 @@ class TransferReviewIntegrationTest {
     }
 
     @Test
+    void rejectedTransferWithoutCommentPersistsNullReviewNote() {
+        Transfer transfer = pending("6000.00");
+
+        service.reject(transfer.getId(), null, GESTOR);
+
+        Transfer persisted = transfers.findById(transfer.getId()).orElseThrow();
+        assertThat(persisted.getStatus()).isEqualTo(TransferStatus.RECHAZADA);
+        assertThat(persisted.getRejectionReason()).isEqualTo("RECHAZADA_POR_GESTOR");
+        assertThat(persisted.getReviewNote()).isNull();
+        assertThat(persisted.getReviewedBy()).isEqualTo(GESTOR.id());
+        assertThat(persisted.getReviewedAt()).isNotNull();
+        verify(accounts, never()).debit(anyString(), anyString(), any(), any());
+    }
+
+    @Test
     void approveWaitsForTheTransferLock() throws Exception {
         Transfer transfer = pending("6000.00");
         Long id = transfer.getId();

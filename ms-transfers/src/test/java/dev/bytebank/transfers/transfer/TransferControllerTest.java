@@ -28,9 +28,12 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -305,7 +308,7 @@ class TransferControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/transfers/{id}/reject devuelve rechazo auditado")
+    @DisplayName("POST /api/transfers/{id}/reject devuelve rechazo auditado con comentario")
     void rejectWithGestorReturnsRejectedTransfer() throws Exception {
         Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
                 new BigDecimal("6000.00"), "Alquiler", 2L);
@@ -316,45 +319,172 @@ class TransferControllerTest {
                         .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"reason":"Operación no justificada"}
+                                {"comment":"Operación no justificada"}
                                 """)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("RECHAZADA"))
                 .andExpect(jsonPath("$.rejectionReason").value("RECHAZADA_POR_GESTOR"))
                 .andExpect(jsonPath("$.reviewedBy").value(99))
+                .andExpect(jsonPath("$.reviewedAt").isNotEmpty())
                 .andExpect(jsonPath("$.reviewNote").value("Operación no justificada"));
 
         verify(transferService).reject(eq(1L), eq("Operación no justificada"), any());
     }
 
     @Test
-    @DisplayName("POST /api/transfers/{id}/reject valida el motivo")
-    void rejectWithoutReasonReturnsBadRequest() throws Exception {
+    @DisplayName("POST /api/transfers/{id}/reject acepta petición sin cuerpo ni Content-Type")
+    void rejectWithoutBodyAndWithoutContentTypeReturnsRejectedTransfer() throws Exception {
+        Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.rejectByReviewer(99L, null);
+        when(transferService.reject(eq(1L), isNull(), any())).thenReturn(transfer);
+
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RECHAZADA"))
+                .andExpect(jsonPath("$.rejectionReason").value("RECHAZADA_POR_GESTOR"))
+                .andExpect(jsonPath("$.reviewedBy").value(99))
+                .andExpect(jsonPath("$.reviewedAt").isNotEmpty())
+                .andExpect(jsonPath("$.reviewNote").value(nullValue()));
+
+        verify(transferService).reject(eq(1L), isNull(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject acepta petición sin cuerpo con Content-Type JSON")
+    void rejectWithoutBodyWithJsonContentTypeReturnsRejectedTransfer() throws Exception {
+        Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.rejectByReviewer(99L, null);
+        when(transferService.reject(eq(1L), isNull(), any())).thenReturn(transfer);
+
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RECHAZADA"))
+                .andExpect(jsonPath("$.reviewNote").value(nullValue()));
+
+        verify(transferService).reject(eq(1L), isNull(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject acepta cuerpo JSON vacío {}")
+    void rejectWithEmptyJsonObjectReturnsRejectedTransfer() throws Exception {
+        Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.rejectByReviewer(99L, null);
+        when(transferService.reject(eq(1L), isNull(), any())).thenReturn(transfer);
+
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RECHAZADA"))
+                .andExpect(jsonPath("$.reviewNote").value(nullValue()));
+
+        verify(transferService).reject(eq(1L), isNull(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject acepta comentario en blanco como opcional")
+    void rejectWithBlankCommentReturnsRejectedTransfer() throws Exception {
+        Transfer transfer = new Transfer(Iban.generate(1), Iban.generate(2),
+                new BigDecimal("6000.00"), "Alquiler", 2L);
+        transfer.rejectByReviewer(99L, null);
+        when(transferService.reject(eq(1L), eq("   "), any())).thenReturn(transfer);
+
         mockMvc.perform(post("/api/transfers/1/reject")
                         .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"reason":" "}
+                                {"comment":"   "}
                                 """)
                         .accept(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"))
-                .andExpect(jsonPath("$.fields.reason").exists());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RECHAZADA"))
+                .andExpect(jsonPath("$.reviewNote").value(nullValue()));
+
+        verify(transferService).reject(eq(1L), eq("   "), any());
     }
 
     @Test
-    @DisplayName("POST /api/transfers/{id}/reject rechaza clientes")
+    @DisplayName("POST /api/transfers/{id}/reject rechaza comentario mayor a 255 caracteres")
+    void rejectWithCommentLongerThan255CharactersReturnsBadRequest() throws Exception {
+        String tooLong = "x".repeat(256);
+
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"comment\":\"" + tooLong + "\"}")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"))
+                .andExpect(jsonPath("$.fields.comment").value("El comentario no puede superar 255 caracteres"));
+
+        verifyNoInteractions(transferService);
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject rechaza JSON mal formado con 400")
+    void rejectWithMalformedJsonReturnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{bad")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DATOS_NO_VALIDOS"));
+
+        verifyNoInteractions(transferService);
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject rechaza Content-Type no soportado con 415")
+    void rejectWithUnsupportedContentTypeReturnsUnsupportedMediaType() throws Exception {
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("No procede")
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.code").value("TIPO_CONTENIDO_NO_SOPORTADO"));
+
+        verifyNoInteractions(transferService);
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject rechaza clientes con cuerpo")
     void rejectWithClienteReturnsForbidden() throws Exception {
         mockMvc.perform(post("/api/transfers/1/reject")
                         .header("Authorization", "Bearer " + token(2L, "ana@bytebank.test", Role.CLIENTE))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"reason":"No procede"}
+                                {"comment":"No procede"}
                                 """)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+
+        verifyNoInteractions(transferService);
+    }
+
+    @Test
+    @DisplayName("POST /api/transfers/{id}/reject rechaza clientes sin cuerpo")
+    void rejectWithoutBodyWithClienteReturnsForbidden() throws Exception {
+        mockMvc.perform(post("/api/transfers/1/reject")
+                        .header("Authorization", "Bearer " + token(2L, "ana@bytebank.test", Role.CLIENTE))
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("ACCESO_DENEGADO"));
+
+        verifyNoInteractions(transferService);
     }
 
     @Test
@@ -368,7 +498,7 @@ class TransferControllerTest {
                         .header("Authorization", "Bearer " + token(99L, "gestor@bytebank.test", Role.GESTOR))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"reason":"No procede"}
+                                {"comment":"No procede"}
                                 """)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isConflict())

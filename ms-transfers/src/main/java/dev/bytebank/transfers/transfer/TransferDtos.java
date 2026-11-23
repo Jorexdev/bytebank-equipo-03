@@ -25,9 +25,8 @@ public final class TransferDtos {
     }
 
     public record RejectTransferRequest(
-            @NotBlank(message = "El motivo de rechazo es obligatorio")
-            @Size(max = 255, message = "El motivo no puede superar 255 caracteres")
-            String reason) {
+            @Size(max = 255, message = "El comentario no puede superar 255 caracteres")
+            String comment) {
     }
 
     public record TransferResponse(Long id, String originIban, String destinationIban, BigDecimal amount,

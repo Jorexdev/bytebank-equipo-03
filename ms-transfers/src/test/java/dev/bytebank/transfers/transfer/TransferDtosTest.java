@@ -79,34 +79,33 @@ class TransferDtosTest {
     }
 
     @Test
-    void acceptsValidRejectionReason() {
+    void acceptsValidRejectionComment() {
         assertThat(validator.validate(new RejectTransferRequest("Operación no justificada"))).isEmpty();
     }
 
     @Test
-    void rejectsBlankRejectionReason() {
-        assertThat(validator.validate(new RejectTransferRequest("   ")))
-                .anySatisfy(v -> {
-                    assertThat(v.getPropertyPath().toString()).isEqualTo("reason");
-                    assertThat(v.getMessage()).isEqualTo("El motivo de rechazo es obligatorio");
-                });
+    void acceptsNullRejectionComment() {
+        assertThat(validator.validate(new RejectTransferRequest(null))).isEmpty();
     }
 
     @Test
-    void rejectsMissingRejectionReason() {
-        assertThat(validator.validate(new RejectTransferRequest(null)))
-                .anySatisfy(v -> {
-                    assertThat(v.getPropertyPath().toString()).isEqualTo("reason");
-                    assertThat(v.getMessage()).isEqualTo("El motivo de rechazo es obligatorio");
-                });
+    void acceptsEmptyAndBlankRejectionComment() {
+        assertThat(validator.validate(new RejectTransferRequest(""))).isEmpty();
+        assertThat(validator.validate(new RejectTransferRequest("   "))).isEmpty();
     }
 
     @Test
-    void rejectsRejectionReasonLongerThan255Characters() {
+    void acceptsRejectionCommentAtMaximumLength() {
+        assertThat(validator.validate(new RejectTransferRequest("x".repeat(255)))).isEmpty();
+    }
+
+    @Test
+    void rejectsRejectionCommentLongerThan255Characters() {
         assertThat(validator.validate(new RejectTransferRequest("x".repeat(256))))
-                .anySatisfy(v -> {
-                    assertThat(v.getPropertyPath().toString()).isEqualTo("reason");
-                    assertThat(v.getMessage()).isEqualTo("El motivo no puede superar 255 caracteres");
+                .singleElement()
+                .satisfies(v -> {
+                    assertThat(v.getPropertyPath().toString()).isEqualTo("comment");
+                    assertThat(v.getMessage()).isEqualTo("El comentario no puede superar 255 caracteres");
                 });
     }
 
